@@ -183,6 +183,9 @@ class StateClassifier(TorchModel):
             A tensor of shape (num_samples, num_states, num_times) if return_all is True. Otherwise,
             a tensor of shape (num_samples, num_states) is returned.
         """
+        # print(f'{input.shape=}')
+        # print(f"{input=}")
+
         num_samples, num_features, num_times = input.shape
         input = input.permute(2, 0, 1).to(self.device)
         # input.shape (num_times, num_samples, num_features)

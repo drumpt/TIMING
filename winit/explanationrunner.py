@@ -394,6 +394,7 @@ class ExplanationRunner:
         Returns:
             A dictionary of CV to the attribution.
         """
+        print(f"{dataloader.batch_size=}")
         try:
             return self._run_attributes(dataloader)
         except RuntimeError as e:
@@ -515,6 +516,8 @@ class ExplanationRunner:
         orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
         x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset)])).cpu().numpy()
         y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset)])).cpu().numpy()
+        # nan_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
+
         dfs = {}
         for masker in maskers:
             self.log.info(f"Beginning performance drop for mask={masker.get_name()}")

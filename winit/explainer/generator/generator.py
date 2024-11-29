@@ -301,7 +301,8 @@ class IndividualFeatureGenerator(torch.nn.Module):
         else:
             self.eval()
         epoch_loss = 0
-        for i, (signals, _) in enumerate(dataloader):
+        for i, batch in enumerate(dataloader):
+            signals = batch[0]
             label = signals[:, self.feature_index, :].transpose(0, 1)
             if run_train:
                 optimizer.zero_grad()
