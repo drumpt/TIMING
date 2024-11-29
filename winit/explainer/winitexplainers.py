@@ -92,6 +92,8 @@ class WinITExplainer(BaseExplainer):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
     def _model_predict(self, x):
+        # print(f"{x=}")
+        # print(f"in _model_predict {x.shape=}")
         """
         Run predict on base model. If the output is binary, i.e. num_class = 1, we will make it
         into a probability distribution by append (p, 1-p) to it.
@@ -125,9 +127,13 @@ class WinITExplainer(BaseExplainer):
 
             batch_size, num_features, num_timesteps = x.shape
             scores = []
+            print(f"{x.shape=}")
 
             for t in range(num_timesteps):
                 window_size = min(t, self.window_size)
+
+                print(f"{t=}")
+                print(f"{window_size=}")
 
                 if t == 0:
                     scores.append(np.zeros((batch_size, num_features, self.window_size)))
@@ -135,6 +141,11 @@ class WinITExplainer(BaseExplainer):
 
                 # x = (num_sample, num_feature, n_timesteps)
                 p_y = self._model_predict(x[:, :, : t + 1])
+                # print(f"{t=}")
+                # print(f"{self.window_size=}")
+                # print(f"{x.shape=}")
+                # print(f"{x[:, :, : t + 1].shape=}")
+                # print(f"{p_y.shape=}")
 
                 iS_array = np.zeros((num_features, window_size, batch_size), dtype=float)
                 for n in range(window_size):
@@ -143,6 +154,14 @@ class WinITExplainer(BaseExplainer):
                     counterfactuals = self._generate_counterfactuals(
                         time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
                     )
+                    
+                    print(f"{counterfactuals.shape=}")
+                    print(f"{n=}")
+                    print(f"{time_past=}")
+                    print(f"{time_forward=}")
+                    print(f"{x[:, :, :time_past].shape=}")
+                    print(f"{x[:, :, time_past : t + 1].shape=}")
+
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
                         # repeat input for num samples
@@ -171,19 +190,24 @@ class WinITExplainer(BaseExplainer):
                         iSab = np.clip(iSab, -1e6, 1e6)
                         iS_array[f, n, :] = iSab
 
+                print(f"{iS_array.shape=}")
+
                 # Compute the I(S) array
                 b = iS_array[:, 1:, :] - iS_array[:, :-1, :]
                 iS_array[:, 1:, :] = b
 
                 score = iS_array[:, ::-1, :].transpose(2, 0, 1)  # (bs, nfeat, time)
+                print(f"{score.shape=}")
 
                 # Pad the scores when time forward is less than window size.
                 if score.shape[2] < self.window_size:
                     score = np.pad(score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0)))
+                print(f"after pad {score.shape=}")
                 scores.append(score)
-            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")
+            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")            
 
             scores = np.stack(scores).transpose((1, 2, 0, 3))  # (bs, fts, ts, window_size)
+            print(f"after stack {scores.shape=}")
             return scores
 
     def _compute_metric(self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor) -> torch.Tensor:

@@ -71,6 +71,8 @@ class WinITDataset(abc.ABC):
         train_label: np.ndarray,
         test_data: np.ndarray,
         test_label: np.ndarray,
+        train_mask: np.ndarry=None,
+        test_mask: np.ndarry=None,
     ):
         """
         Get the train loader, valid loader and the test loaders. The "train_data" and "train_label"
@@ -87,8 +89,15 @@ class WinITDataset(abc.ABC):
                 The test label
         """
         feature_size = train_data.shape[1]
-        train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label))
-        test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label))
+        if train_mask is not None:
+            train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label), torch.Tensor(train_mask))
+        else:
+            train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label))
+        if test_mask is not None:
+            test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label), torch.Tensor(test_mask))
+        else:
+            test_tensor_dataset = TensorDataset(torch.Tensor(test_data), torch.Tensor(test_label))
+
         kf = KFold(n_splits=5)
         train_loaders = []
         valid_loaders = []
@@ -208,9 +217,18 @@ class Mimic(WinITDataset):
         train_label = np.array([y for (x, y, z) in data[0:n_train]])
         test_label = np.array([y for (x, y, z) in data[n_train:]])
 
+        train_mask = np.array([z for (x, y, z) in data[0:n_train]])
+        test_mask = np.array([z for (x, y, z) in data[n_train:]])
+        
+        print(f"{train_mask=}")
+        print(f"{train_mask.shape=}")
+
         train_data, test_data = self.normalize(train_data, test_data, feature_size)
 
-        self._get_loaders(train_data, train_label, test_data, test_label)
+        print(f"{train_data.shape=}")
+        print(f"{test_data.shape=}")
+
+        self._get_loaders(train_data, train_label, test_data, test_label, train_mask, test_mask)
 
     @staticmethod
     def normalize(train_data, test_data, feature_size):

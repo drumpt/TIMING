@@ -280,7 +280,12 @@ class ModelTrainer:
         else:
             loss_criterion = torch.nn.BCEWithLogitsLoss()
         all_labels, all_probs = [], []
-        for signals, labels in dataloader:
+        for batch in dataloader:
+            signals = batch[0]
+            labels = batch[1]
+            if len(batch) > 2:
+                masks = batch[2]
+
             if run_train:
                 optimizer.zero_grad()
             signals = torch.Tensor(signals.float()).to(self.device)

@@ -74,6 +74,7 @@ class Params:
         data = self.argdict["data"]
         testbs = self.argdict["testbs"]
         batch_size = self.argdict["batchsize"]
+        print(f"{batch_size=}")
         data_path = self.argdict["datapath"]
         data_seed = self.argdict["dataseed"]
         cv_to_use = self.argdict["cv"]
@@ -375,6 +376,8 @@ if __name__ == '__main__':
     train_gen = argdict['traingen']
     result_file = argdict["resultfile"]
 
+    print(f"{argdict['batchsize']=}")
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # parse the arg
@@ -392,6 +395,8 @@ if __name__ == '__main__':
         log.info(f"{k:15}: {v}")
     first = True
     save_failed = False
+
+    print(f"{params=}")
 
     all_df = []
     try:
