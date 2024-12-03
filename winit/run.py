@@ -352,6 +352,7 @@ if __name__ == '__main__':
                              "masked features in WinIT")
     parser.add_argument('--samples', type=int, default=-1,
                         help="Number of samples in generating masked features in  WinIT")
+    parser.add_argument('--top_p', type=float, default=0)
 
     # eval args
     parser.add_argument("--maskseed", type=int, default=43814,
@@ -376,6 +377,7 @@ if __name__ == '__main__':
     train_gen = argdict['traingen']
     result_file = argdict["resultfile"]
 
+    print(f"{argdict=}")
     print(f"{argdict['batchsize']=}")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -416,7 +418,7 @@ if __name__ == '__main__':
             generators_to_train = params.generators_to_train
             for explainer_name, explainer_dict_list in generators_to_train.items():
                 for explainer_dict in explainer_dict_list:
-                    runner.get_explainers(explainer_name, explainer_dict=explainer_dict)
+                    runner.get_explainers(argdict, explainer_name, explainer_dict=explainer_dict)
                     log.info(
                         f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}")
                     runner.train_generators(num_epochs=300)
@@ -426,7 +428,7 @@ if __name__ == '__main__':
             for explainer_dict in explainer_dict_list:
                 # generate feature importance
                 runner.clean_up(clean_importance=True, clean_explainer=True, clean_model=False)
-                runner.get_explainers(explainer_name, explainer_dict=explainer_dict)
+                runner.get_explainers(argdict, explainer_name, explainer_dict=explainer_dict)
                 runner.set_model_for_explainer(set_eval=explainer_name != "fit")
 
                 if not skip_explain:

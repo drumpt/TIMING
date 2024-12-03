@@ -197,7 +197,7 @@ class Mimic(WinITDataset):
         batch_size: int = 100,
         testbs: int | None = None,
         deterministic: bool = False,
-        file_name: str = "patient_vital_preprocessed.pkl",
+        file_name: str = "patient_vital_preprocessed_mask.pkl",
         cv_to_use: List[int] | int | None = None,
         seed: int | None = 1234,
     ):
@@ -211,22 +211,21 @@ class Mimic(WinITDataset):
 
         n_train = int(train_ratio * len(data))
 
-        X = np.array([x for (x, y, z) in data])
+        X = np.array([datum[0] for datum in data])
         train_data = X[0:n_train]
         test_data = X[n_train:]
-        train_label = np.array([y for (x, y, z) in data[0:n_train]])
-        test_label = np.array([y for (x, y, z) in data[n_train:]])
-
-        train_mask = np.array([z for (x, y, z) in data[0:n_train]])
-        test_mask = np.array([z for (x, y, z) in data[n_train:]])
+        train_label = np.array([datum[1] for datum in data[0:n_train]])
+        test_label = np.array([datum[1] for datum in data[n_train:]])
+        train_mask = np.array([datum[3] for datum in data[0:n_train]])
+        test_mask = np.array([datum[3] for datum in data[n_train:]])
         
-        print(f"{train_mask=}")
-        print(f"{train_mask.shape=}")
+        # print(f"{train_mask=}")
+        # print(f"{train_mask.shape=}")
 
         train_data, test_data = self.normalize(train_data, test_data, feature_size)
 
-        print(f"{train_data.shape=}")
-        print(f"{test_data.shape=}")
+        # print(f"{train_data.shape=}")
+        # print(f"{test_data.shape=}")
 
         self._get_loaders(train_data, train_label, test_data, test_label, train_mask, test_mask)
 

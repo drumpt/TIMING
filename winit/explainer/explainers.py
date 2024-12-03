@@ -17,7 +17,7 @@ class BaseExplainer(abc.ABC):
     A base class for explainer.
     """
 
-    def __init__(self, device=None):
+    def __init__(self, device=None, args=None):
         """
         Constructor.
 
@@ -27,6 +27,7 @@ class BaseExplainer(abc.ABC):
         """
         self.base_model: TorchModel | None = None
         self.device = resolve_device(device)
+        self.args = args
 
     @abc.abstractmethod
     def attribute(self, x):
