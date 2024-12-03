@@ -35,6 +35,7 @@ class WinITExplainer(BaseExplainer):
         joint: bool = False,
         metric: str = "pd",
         random_state: int | None = None,
+        args = None,
         **kwargs,
     ):
         """
@@ -76,6 +77,7 @@ class WinITExplainer(BaseExplainer):
         self.joint = joint
         self.conditional = conditional
         self.metric = metric
+        self.args = args
 
         self.generators: BaseFeatureGenerator | None = None
         self.path = path
@@ -105,7 +107,7 @@ class WinITExplainer(BaseExplainer):
             return prob_distribution
         return p
 
-    def attribute(self, x):
+    def attribute(self, x, mask=None):
         """
         Compute the WinIT attribution.
 
@@ -122,18 +124,21 @@ class WinITExplainer(BaseExplainer):
         self.base_model.eval()
         self.base_model.zero_grad()
 
+        corr = self.calculate_per_sample_correlations(x)
+        top_corr = self.get_top_correlations(corr, self.args['top_p'])
+
         with torch.no_grad():
             tic = time()
 
             batch_size, num_features, num_timesteps = x.shape
             scores = []
-            print(f"{x.shape=}")
+            # print(f"{x.shape=}")
 
             for t in range(num_timesteps):
                 window_size = min(t, self.window_size)
 
-                print(f"{t=}")
-                print(f"{window_size=}")
+                # print(f"{t=}")
+                # print(f"{window_size=}")
 
                 if t == 0:
                     scores.append(np.zeros((batch_size, num_features, self.window_size)))
@@ -155,12 +160,12 @@ class WinITExplainer(BaseExplainer):
                         time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
                     )
                     
-                    print(f"{counterfactuals.shape=}")
-                    print(f"{n=}")
-                    print(f"{time_past=}")
-                    print(f"{time_forward=}")
-                    print(f"{x[:, :, :time_past].shape=}")
-                    print(f"{x[:, :, time_past : t + 1].shape=}")
+                    # print(f"{counterfactuals.shape=}")
+                    # print(f"{n=}")
+                    # print(f"{time_past=}")
+                    # print(f"{time_forward=}")
+                    # print(f"{x[:, :, :time_past].shape=}")
+                    # print(f"{x[:, :, time_past : t + 1].shape=}")
 
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
@@ -168,8 +173,17 @@ class WinITExplainer(BaseExplainer):
                         x_hat_in = (
                             x[:, :, : t + 1].unsqueeze(0).repeat(self.num_samples, 1, 1, 1)
                         )  # (ns, bs, f, time)
+
                         # replace unknown with counterfactuals
-                        x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[f, :, :, :]
+                        # x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[f, :, :, :]
+                        corr_indices = top_corr[f]
+                        # print(f"{corr_indices=}")
+                        x_hat_in[:, :, corr_indices, time_past:t+1] = counterfactuals[corr_indices]
+                        # torch.index_select(
+                        #     x_hat_in[:, :, :, time_past : t + 1],
+                        #     dim=2,
+                        #     index=corr_indices,
+                        # ) = torch.index_select(counterfactuals, dim=0, index=corr_indices)
 
                         # Compute Q = p(y_t | tilde(X)^S_{t-n:t})
                         p_y_hat = self._model_predict(
@@ -190,25 +204,105 @@ class WinITExplainer(BaseExplainer):
                         iSab = np.clip(iSab, -1e6, 1e6)
                         iS_array[f, n, :] = iSab
 
-                print(f"{iS_array.shape=}")
+                # print(f"{iS_array.shape=}")
 
                 # Compute the I(S) array
                 b = iS_array[:, 1:, :] - iS_array[:, :-1, :]
                 iS_array[:, 1:, :] = b
 
                 score = iS_array[:, ::-1, :].transpose(2, 0, 1)  # (bs, nfeat, time)
-                print(f"{score.shape=}")
+                # print(f"{score.shape=}")
 
                 # Pad the scores when time forward is less than window size.
                 if score.shape[2] < self.window_size:
                     score = np.pad(score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0)))
-                print(f"after pad {score.shape=}")
+                # print(f"after pad {score.shape=}")
                 scores.append(score)
             self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")            
 
             scores = np.stack(scores).transpose((1, 2, 0, 3))  # (bs, fts, ts, window_size)
-            print(f"after stack {scores.shape=}")
+            scores[mask == 1] = np.nan
+            scores = self.forward_fill_time(scores)
+
+            # print(f"after stack {scores.shape=}")
             return scores
+
+    def calculate_per_sample_correlations(self, data):
+        """
+        Calculate correlation matrix for each batch element efficiently.
+        
+        Args:
+            data: torch tensor of shape (B, F, T)
+                B = batch size
+                F = number of features
+                T = number of timesteps
+        
+        Returns:
+            mean_correlation_matrix: Average correlations across batch (F x F)
+            std_correlation_matrix: Standard deviation of correlations (F x F)
+        """
+        B, F, T = data.shape
+        
+        # Center the data for each feature in each batch
+        centered_data = data - data.mean(dim=2, keepdim=True)  # (B, F, T)
+        
+        # Calculate std for each feature in each batch
+        std = torch.sqrt((centered_data ** 2).sum(dim=2))  # (B, F)
+        
+        # Compute correlation matrices for all batches at once
+        # data is already in shape (B, F, T), so we can directly do batch matrix multiply
+        batch_correlations = torch.bmm(centered_data, centered_data.transpose(1, 2)) / T  # (B, F, F)
+        
+        # Divide by outer product of std to get correlations
+        std_outer = torch.bmm(std.unsqueeze(2), std.unsqueeze(1))  # (B, F, F)
+        batch_correlations = batch_correlations / (std_outer + 1e-8)  # Add small epsilon to avoid division by zero
+        
+        # Calculate mean and std across batch dimension
+        mean_correlation_matrix = torch.mean(batch_correlations, dim=0)  # (F, F)
+        
+        return mean_correlation_matrix
+
+    def get_top_correlations(self, correlation_matrix, p):
+        F = correlation_matrix.shape[0]
+        top_indices = {}
+        for i in range(F):
+            # Get correlations for feature i
+            correlations = correlation_matrix[i]
+            
+            # Take absolute value to consider both positive and negative correlations
+            abs_correlations = torch.abs(correlations)
+            
+            # Calculate threshold for top p%
+            threshold = torch.quantile(abs_correlations, 1 - p/100)
+            
+            # Get indices where correlation exceeds threshold (excluding self-correlation)
+            top_idx = torch.where(abs_correlations > threshold)[0]
+            # top_idx = top_idx[top_idx != i]  # Remove self-correlation
+            top_idx = top_idx.tolist()
+            if not i in top_idx:
+                top_idx.append(i)
+            top_indices[i] = top_idx
+        return top_indices
+
+    def forward_fill_time(self, array):
+        """
+        Forward fills NaN values along the time dimension of a 4D numpy array.
+        Input shape: (batch, channel, time, feature)
+        """
+        import pandas as pd
+        shape = array.shape
+        
+        # Reshape to combine batch and channel dimensions for processing
+        reshaped = array.reshape(-1, shape[2], shape[3])
+        
+        # Process each feature independently
+        filled = np.zeros_like(reshaped)
+        for i in range(reshaped.shape[0]):  # iterate over combined batch*channel
+            for j in range(reshaped.shape[2]):  # iterate over features
+                filled[i, :, j] = pd.Series(reshaped[i, :, j]).fillna(method='ffill').values
+        
+        # Restore original 4D shape
+        return filled.reshape(shape)
 
     def _compute_metric(self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor) -> torch.Tensor:
         """

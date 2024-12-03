@@ -214,6 +214,7 @@ class ExplanationRunner:
 
     def get_explainers(
         self,
+        args,
         explainer_name: str,
         explainer_dict: Dict[str, Any],
     ) -> None:
@@ -242,6 +243,7 @@ class ExplanationRunner:
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
                     train_loader=train_loader,
+                    args=args,
                     **kwargs,
                 )
 
@@ -425,10 +427,9 @@ class ExplanationRunner:
         all_importance_scores = {}
         for cv in self.dataset.cv_to_use():
             importance_scores = []
-            for x, y in dataloader:
+            for x, y, mask in dataloader:
                 x = x.to(self.device)
-
-                score = self.explainers[cv].attribute(x)
+                score = self.explainers[cv].attribute(x, mask)
                 importance_scores.append(score)
 
             importance_scores = np.concatenate(importance_scores, 0)
