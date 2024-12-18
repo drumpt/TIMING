@@ -89,6 +89,7 @@ class WinITDataset(abc.ABC):
                 The test label
         """
         feature_size = train_data.shape[1]
+        num_timesteps = train_data.shape[2]
         if train_mask is not None:
             train_tensor_dataset = TensorDataset(torch.Tensor(train_data), torch.Tensor(train_label), torch.Tensor(train_mask))
         else:
@@ -112,6 +113,7 @@ class WinITDataset(abc.ABC):
         self.valid_loaders = valid_loaders
         self.test_loader = test_loader
         self.feature_size = feature_size
+        self.num_timesteps = num_timesteps
 
     @abc.abstractmethod
     def load_data(self) -> None:

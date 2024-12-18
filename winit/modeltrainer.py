@@ -12,7 +12,7 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader, TensorDataset
 
 from winit.dataloader import WinITDataset
-from winit.models import StateClassifier, ConvClassifier, TorchModel
+from winit.models import TorchModel, StateClassifier, ConvClassifier, mTAND, SeFT
 from winit.utils import resolve_device
 
 
@@ -36,6 +36,7 @@ class ModelTrainer:
     def __init__(
         self,
         feature_size: int,
+        num_timesteps: int,
         num_classes: int,
         batch_size: int,
         hidden_size: int,
@@ -75,6 +76,7 @@ class ModelTrainer:
                Whether apply early stopping or not.
         """
         self.feature_size = feature_size
+        self.num_timesteps = num_timesteps
         self.num_classes = num_classes
         self.device = resolve_device(device)
         self.batch_size = batch_size
@@ -100,6 +102,20 @@ class ModelTrainer:
                 num_states=self.num_classes,
                 hidden_size=hidden_size,
                 kernel_size=10,
+                device=self.device,
+            )
+        elif model_type == "MTAND":
+            self.model = mTAND(
+                feature_size=self.feature_size,
+                num_timesteps=self.num_timesteps,
+                num_states=self.num_classes,
+                device=self.device,
+            )
+        elif model_type == "SEFT":
+            self.model = SeFT(
+                feature_size=self.feature_size,
+                num_timesteps=self.num_timesteps,
+                num_states=self.num_classes,
                 device=self.device,
             )
         else:
@@ -281,16 +297,14 @@ class ModelTrainer:
             loss_criterion = torch.nn.BCEWithLogitsLoss()
         all_labels, all_probs = [], []
         for batch in dataloader:
-            signals = batch[0]
-            labels = batch[1]
-            if len(batch) > 2:
-                masks = batch[2]
+            signals = torch.Tensor(batch[0].float()).to(self.device)
+            labels = torch.Tensor(batch[1].long() if multiclass else batch[1].float()).to(self.device)
+            masks = torch.Tensor(batch[2].float()).to(self.device) if len(batch) > 2 else None
 
             if run_train:
                 optimizer.zero_grad()
-            signals = torch.Tensor(signals.float()).to(self.device)
-            labels = torch.Tensor(labels.long() if multiclass else labels.float()).to(self.device)
-            output = self.model(signals, return_all=use_all_times)
+
+            output = self.model(signals, masks, return_all=use_all_times)
             prob = self.model.activation(output)
 
             if use_all_times and not multiclass:
@@ -398,6 +412,7 @@ class ModelTrainerWithCv:
         for cv in self.dataset.cv_to_use():
             self.model_trainers[cv] = ModelTrainer(
                 dataset.feature_size,
+                dataset.num_timesteps,
                 dataset.num_classes,
                 dataset.batch_size,
                 hidden_size,

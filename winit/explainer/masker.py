@@ -124,25 +124,37 @@ class Masker:
                         num_masked_total = 0
                         num_masked = 0
                         for cur in range(num_feature_time):
-                            sample_index, feature_id, time_id = coordinate_list[start + cur]
+                            sample_index, feature_id, time_id = coordinate_list[
+                                start + cur
+                            ]
                             # sanity check
                             if sample_index != sample_id:
                                 raise RuntimeError("Failed sanity check!")
 
-                            balance_condition = self.balanced and num_masked_total >= self.top
+                            balance_condition = (
+                                self.balanced and num_masked_total >= self.top
+                            )
                             num_drop_condition = num_masked >= self.top
                             threshold_condition = (
                                 importance_score[sample_id, feature_id, time_id]
                                 <= self.importance_threshold
                             )
-                            if threshold_condition or balance_condition or num_drop_condition:
+                            if (
+                                threshold_condition
+                                or balance_condition
+                                or num_drop_condition
+                            ):
                                 # stop masking because any of the condition occurs.
                                 break
                             if masked[sample_index, feature_id, time_id]:
                                 # already masked.
                                 continue
-                            end_ts, new_x[sample_id, feature_id, :] = self._carry_forward(
-                                time_id, new_x[sample_id, feature_id, :], self.mask_method
+                            end_ts, new_x[sample_id, feature_id, :] = (
+                                self._carry_forward(
+                                    time_id,
+                                    new_x[sample_id, feature_id, :],
+                                    self.mask_method,
+                                )
                             )
                             masked[sample_id, feature_id, time_id:end_ts] = True
                             start_masked[sample_id, feature_id, time_id] = True
@@ -217,8 +229,14 @@ class Masker:
             if randomize_ties:
                 self._shuffle_ties(argsorted_ravel_local, flattened_scores)
             feature_index = argsorted_ravel_local // truncated_scores.shape[2]
-            time_index = (argsorted_ravel_local % truncated_scores.shape[2]) + self.min_time
-            arange = np.arange(scores.shape[0]).reshape(-1, 1).repeat(feature_index.shape[1], 1)
+            time_index = (
+                argsorted_ravel_local % truncated_scores.shape[2]
+            ) + self.min_time
+            arange = (
+                np.arange(scores.shape[0])
+                .reshape(-1, 1)
+                .repeat(feature_index.shape[1], 1)
+            )
             coordinate_list = np.stack([arange, feature_index, time_index]).reshape(
                 3, -1
             )  # (3, all_coordinate_length)
@@ -248,7 +266,9 @@ class Masker:
             rng.shuffle(argsorted_ravel_global[from_index:to_index])
 
     def _shuffle_ties(self, argsorted_ravel_local, flattened_scores):
-        sorted_scores = np.take_along_axis(flattened_scores, argsorted_ravel_local, axis=1)
+        sorted_scores = np.take_along_axis(
+            flattened_scores, argsorted_ravel_local, axis=1
+        )
         repeated = np.concatenate(
             [
                 np.zeros((len(sorted_scores), 1), dtype=bool),
@@ -295,7 +315,9 @@ class Masker:
         elif mask == "end":
             new_timestep = ts_length
         else:
-            raise NotImplementedError(f"Mask method {mask} not recognized for carry forward")
+            raise NotImplementedError(
+                f"Mask method {mask} not recognized for carry forward"
+            )
 
         time_series[timestep:new_timestep] = time_series[timestep - 1]
         return new_timestep, time_series
@@ -305,4 +327,6 @@ class Masker:
             if self.balanced:
                 return f"bal{int(self.top)}_{self.mask_method}_{self.aggregate_method}"
             return f"top{int(self.top)}_{self.mask_method}_{self.aggregate_method}"
-        return f"globaltop{int(self.top * 100)}_{self.mask_method}_{self.aggregate_method}"
+        return (
+            f"globaltop{int(self.top * 100)}_{self.mask_method}_{self.aggregate_method}"
+        )
