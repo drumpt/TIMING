@@ -396,7 +396,6 @@ class ExplanationRunner:
         Returns:
             A dictionary of CV to the attribution.
         """
-        print(f"{dataloader.batch_size=}")
         try:
             return self._run_attributes(dataloader)
         except RuntimeError as e:
@@ -427,7 +426,7 @@ class ExplanationRunner:
         all_importance_scores = {}
         for cv in self.dataset.cv_to_use():
             importance_scores = []
-            for x, y, mask in dataloader:
+            for x, _, mask in dataloader:
                 x = x.to(self.device)
                 score = self.explainers[cv].attribute(x, mask)
                 importance_scores.append(score)
@@ -517,12 +516,14 @@ class ExplanationRunner:
         orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
         x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset)])).cpu().numpy()
         y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset)])).cpu().numpy()
+        mask_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
         # nan_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
 
         dfs = {}
         for masker in maskers:
+            print(f"{masker=}")
             self.log.info(f"Beginning performance drop for mask={masker.get_name()}")
-            new_xs = masker.mask(x_test, self.importances)
+            new_xs = masker.mask(x_test, mask_test, self.importances)
             new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
             self._plot_boxes(
                 num_to_plot=20, aggregate_methods=[masker.aggregate_method], x_other=new_xs, mask_name=masker.get_name()

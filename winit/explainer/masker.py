@@ -46,26 +46,32 @@ class Masker:
                For features that contain a window size, i.e. WinIT, this describes the aggregation
                method. It can be "absmax", "max", "mean".
         """
-        if mask_method not in ["end", "std", "end_fit"]:
+        if mask_method not in ["end", "std", "end_fit", "mam"]:
             raise NotImplementedError(f"Mask method {mask_method} unrecognized")
         self.mask_method = mask_method
         self.top = top
         self.balanced = balanced
         self.seed = seed
         self.local = isinstance(top, int)
-        min_time_dict = {"std": 1, "end": 1, "end_fit": 10}
+        min_time_dict = {"std": 1, "end": 1, "end_fit": 10, "mam": 1}
         self.min_time = min_time_dict[self.mask_method]
         self.importance_threshold = -1000
         self.absolutize = absolutize
         self.aggregate_method = aggregate_method
-        assert not balanced or self.local and mask_method in ["std", "end"]
+        # assert not balanced or self.local and mask_method in ["std", "end"]
 
         self.start_masked_count = None
         self.all_masked_count = None
         self.feature_masked = None
 
+    def get_name(self):
+        return self.mask_method
+
     def mask(
-        self, x_test: np.ndarray, importance_scores: Dict[int, np.ndarray]
+        self,
+        x_test: np.ndarray,
+        mask_test: np.ndarray,
+        importance_scores: Dict[int, np.ndarray],
     ) -> Dict[int, np.ndarray]:
         """
         Perform masking.
@@ -81,6 +87,9 @@ class Masker:
             that has x_test masked.
 
         """
+        if self.mask_method == "mam":
+            return self.missing_aware_mask(x_test, mask_test, importance_scores)
+
         new_xs = {}
         start_masked_count = {}
         all_masked_count = {}
@@ -193,6 +202,98 @@ class Masker:
 
             new_xs[cv] = new_x
 
+        self.start_masked_count = start_masked_count
+        self.all_masked_count = all_masked_count
+        self.feature_masked = feature_masked
+
+        return new_xs
+
+
+    def missing_aware_mask(
+        self, x_test: np.ndarray, mask: np.ndarray, importance_scores: Dict[int, np.ndarray]
+    ) -> Dict[int, np.ndarray]:
+        new_xs = {}
+        start_masked_count = {}
+        all_masked_count = {}
+        feature_masked = {}
+
+        batch_size, num_features, num_times = x_test.shape
+
+        for cv, importance_score in importance_scores.items():
+            importance_score = aggregate_scores(importance_score, self.aggregate_method)
+            if self.absolutize:
+                importance_score = np.abs(importance_score)
+
+            new_x = x_test.copy()
+            masked = np.zeros_like(new_x, dtype=bool)
+            start_masked = np.zeros_like(new_x, dtype=bool)
+
+            # Process each sample independently
+            for b in range(batch_size):
+                # Store groups and scores for all features
+                all_groups = []  # List of (feature_idx, group) tuples
+
+                # First pass: identify groups for all features
+                for f in range(num_features):
+                    groups = []
+                    current_group = []
+                    last_real_value = None
+
+                    # Identify groups
+                    for t in range(num_times):
+                        if mask[b, f, t] == 0:  # Real value
+                            if current_group:
+                                groups.append(current_group)
+                            current_group = [t]
+                            last_real_value = t
+                        elif last_real_value is not None:  # Carried forward value
+                            current_group.append(t)
+
+                    if current_group:
+                        groups.append(current_group)
+
+                    # Calculate scores and store groups with their feature index
+                    for group in groups:
+                        group_score = np.mean(importance_score[b, f, group])
+                        all_groups.append((group_score, f, group))
+
+                # Sort all groups by importance score
+                all_groups.sort(reverse=True)
+
+                # Determine number of groups to mask
+                if isinstance(self.top, float):
+                    num_groups_to_mask = int(len(all_groups) * self.top)
+                else:
+                    num_groups_to_mask = min(self.top, len(all_groups))
+
+                # Mask selected groups across features
+                for i in range(num_groups_to_mask):
+                    if i < len(all_groups):
+                        _, feature_idx, group = all_groups[i]
+                        start_time = group[0]
+                        end_time = group[-1] + 1  # Add 1 to include the last time step
+
+                        # Apply carry forward masking
+                        if start_time > 0:
+                            value_to_forward = new_x[b, feature_idx, start_time - 1]
+                            new_x[b, feature_idx, start_time:end_time] = value_to_forward
+                            masked[b, feature_idx, start_time:end_time] = True
+                            start_masked[b, feature_idx, start_time] = (
+                                True  # Mark start of masking
+                            )
+
+            # Track masking statistics
+            start_masked_count[cv] = np.sum(
+                start_masked, axis=0
+            )  # Sum over batch dimension
+            all_masked_count[cv] = np.sum(masked, axis=0)  # Sum over batch dimension
+            feature_masked[cv] = np.sum(
+                np.sum(start_masked, axis=1) > 0, axis=0
+            )  # Count features with any masking
+
+            new_xs[cv] = new_x
+
+        # Store the statistics in the class
         self.start_masked_count = start_masked_count
         self.all_masked_count = all_masked_count
         self.feature_masked = feature_masked

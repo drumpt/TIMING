@@ -35,7 +35,7 @@ class WinITExplainer(BaseExplainer):
         joint: bool = False,
         metric: str = "pd",
         random_state: int | None = None,
-        args = None,
+        args=None,
         **kwargs,
     ):
         """
@@ -125,7 +125,7 @@ class WinITExplainer(BaseExplainer):
         self.base_model.zero_grad()
 
         corr = self.calculate_per_sample_correlations(x)
-        top_corr = self.get_top_correlations(corr, self.args['top_p'])
+        top_corr = self.get_top_correlations(corr, self.args["top_p"])
 
         with torch.no_grad():
             tic = time()
@@ -135,29 +135,39 @@ class WinITExplainer(BaseExplainer):
             for t in range(num_timesteps):
                 window_size = min(t, self.window_size)
                 if t == 0:
-                    scores.append(np.zeros((batch_size, num_features, self.window_size)))
+                    scores.append(
+                        np.zeros((batch_size, num_features, self.window_size))
+                    )
                     continue
 
                 p_y = self._model_predict(x[:, :, : t + 1])
-                iS_array = np.zeros((num_features, window_size, batch_size), dtype=float)
+                iS_array = np.zeros(
+                    (num_features, window_size, batch_size), dtype=float
+                )
                 for n in range(window_size):
                     time_past = t - n
                     time_forward = n + 1
                     counterfactuals = self._generate_counterfactuals(
                         time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
                     )
-                    
+
                     # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
                     for f in range(num_features):
                         # repeat input for num samples
                         x_hat_in = (
-                            x[:, :, : t + 1].unsqueeze(0).repeat(self.num_samples, 1, 1, 1)
+                            x[:, :, : t + 1]
+                            .unsqueeze(0)
+                            .repeat(self.num_samples, 1, 1, 1)
                         )  # (ns, bs, f, time)
 
                         # replace unknown with counterfactuals
-                        x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[f, :, :, :]
+                        x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[
+                            f, :, :, :
+                        ]
                         p_y_hat = self._model_predict(
-                            x_hat_in.reshape(self.num_samples * batch_size, num_features, t + 1)
+                            x_hat_in.reshape(
+                                self.num_samples * batch_size, num_features, t + 1
+                            )
                         )
                         p_y_exp = (
                             p_y.unsqueeze(0)
@@ -179,47 +189,55 @@ class WinITExplainer(BaseExplainer):
                 score = iS_array[:, ::-1, :].transpose(2, 0, 1)  # (bs, nfeat, time)
                 # Pad the scores when time forward is less than window size.
                 if score.shape[2] < self.window_size:
-                    score = np.pad(score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0)))
+                    score = np.pad(
+                        score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0))
+                    )
                 scores.append(score)
-            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")            
+            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")
 
-            scores = np.stack(scores).transpose((1, 2, 0, 3))  # (bs, fts, ts, window_size)
-            scores[mask == 1] = float('-inf')
+            scores = np.stack(scores).transpose(
+                (1, 2, 0, 3)
+            )  # (bs, fts, ts, window_size)
+            scores[mask == 1] = float("-inf")
             return scores
 
     def calculate_per_sample_correlations(self, data):
         """
         Calculate correlation matrix for each batch element efficiently.
-        
+
         Args:
             data: torch tensor of shape (B, F, T)
                 B = batch size
                 F = number of features
                 T = number of timesteps
-        
+
         Returns:
             mean_correlation_matrix: Average correlations across batch (F x F)
             std_correlation_matrix: Standard deviation of correlations (F x F)
         """
         B, F, T = data.shape
-        
+
         # Center the data for each feature in each batch
         centered_data = data - data.mean(dim=2, keepdim=True)  # (B, F, T)
-        
+
         # Calculate std for each feature in each batch
-        std = torch.sqrt((centered_data ** 2).sum(dim=2))  # (B, F)
-        
+        std = torch.sqrt((centered_data**2).sum(dim=2))  # (B, F)
+
         # Compute correlation matrices for all batches at once
         # data is already in shape (B, F, T), so we can directly do batch matrix multiply
-        batch_correlations = torch.bmm(centered_data, centered_data.transpose(1, 2)) / T  # (B, F, F)
-        
+        batch_correlations = (
+            torch.bmm(centered_data, centered_data.transpose(1, 2)) / T
+        )  # (B, F, F)
+
         # Divide by outer product of std to get correlations
         std_outer = torch.bmm(std.unsqueeze(2), std.unsqueeze(1))  # (B, F, F)
-        batch_correlations = batch_correlations / (std_outer + 1e-8)  # Add small epsilon to avoid division by zero
-        
+        batch_correlations = batch_correlations / (
+            std_outer + 1e-8
+        )  # Add small epsilon to avoid division by zero
+
         # Calculate mean and std across batch dimension
         mean_correlation_matrix = torch.mean(batch_correlations, dim=0)  # (F, F)
-        
+
         return mean_correlation_matrix
 
     def get_top_correlations(self, correlation_matrix, p):
@@ -228,13 +246,13 @@ class WinITExplainer(BaseExplainer):
         for i in range(F):
             # Get correlations for feature i
             correlations = correlation_matrix[i]
-            
+
             # Take absolute value to consider both positive and negative correlations
             abs_correlations = torch.abs(correlations)
-            
+
             # Calculate threshold for top p%
-            threshold = torch.quantile(abs_correlations, 1 - p/100)
-            
+            threshold = torch.quantile(abs_correlations, 1 - p / 100)
+
             # Get indices where correlation exceeds threshold (excluding self-correlation)
             top_idx = torch.where(abs_correlations > threshold)[0]
             # top_idx = top_idx[top_idx != i]  # Remove self-correlation
@@ -250,21 +268,26 @@ class WinITExplainer(BaseExplainer):
         Input shape: (batch, channel, time, feature)
         """
         import pandas as pd
+
         shape = array.shape
-        
+
         # Reshape to combine batch and channel dimensions for processing
         reshaped = array.reshape(-1, shape[2], shape[3])
-        
+
         # Process each feature independently
         filled = np.zeros_like(reshaped)
         for i in range(reshaped.shape[0]):  # iterate over combined batch*channel
             for j in range(reshaped.shape[2]):  # iterate over features
-                filled[i, :, j] = pd.Series(reshaped[i, :, j]).fillna(method='ffill').values
-        
+                filled[i, :, j] = (
+                    pd.Series(reshaped[i, :, j]).fillna(method="ffill").values
+                )
+
         # Restore original 4D shape
         return filled.reshape(shape)
 
-    def _compute_metric(self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor) -> torch.Tensor:
+    def _compute_metric(
+        self, p_y_exp: torch.Tensor, p_y_hat: torch.Tensor
+    ) -> torch.Tensor:
         """
         Compute the metric for comparisons of two distributions.
 
@@ -279,7 +302,9 @@ class WinITExplainer(BaseExplainer):
 
         """
         if self.metric == "kl":
-            return torch.sum(torch.nn.KLDivLoss(reduction="none")(torch.log(p_y_hat), p_y_exp), -1)
+            return torch.sum(
+                torch.nn.KLDivLoss(reduction="none")(torch.log(p_y_hat), p_y_exp), -1
+            )
         if self.metric == "js":
             average = (p_y_hat + p_y_exp) / 2
             lhs = torch.nn.KLDivLoss(reduction="none")(torch.log(average), p_y_hat)
@@ -357,12 +382,15 @@ class WinITExplainer(BaseExplainer):
         if self.data_distribution is not None:
             # Random sample instead of using generator
             counterfactuals = torch.zeros(
-                (self.num_features, self.num_samples, batch_size, time_forward), device=self.device
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
             )
             for f in range(self.num_features):
                 values = self.data_distribution[:, f, :].reshape(-1)
                 counterfactuals[f, :, :, :] = torch.Tensor(
-                    self.rng.choice(values, size=(self.num_samples, batch_size, time_forward)),
+                    self.rng.choice(
+                        values, size=(self.num_samples, batch_size, time_forward)
+                    ),
                     device=self.device,
                 )
             return counterfactuals
@@ -372,23 +400,30 @@ class WinITExplainer(BaseExplainer):
             mu = mu[:, :, :time_forward]
             std = std[:, :, :time_forward]  # (bs, f, time_forward)
             counterfactuals = mu.unsqueeze(0) + torch.randn(
-                self.num_samples, batch_size, self.num_features, time_forward, device=self.device
+                self.num_samples,
+                batch_size,
+                self.num_features,
+                time_forward,
+                device=self.device,
             ) * std.unsqueeze(0)
             return counterfactuals.permute(2, 0, 1, 3)
 
         if isinstance(self.generators, JointFeatureGenerator):
             counterfactuals = torch.zeros(
-                (self.num_features, self.num_samples, batch_size, time_forward), device=self.device
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
             )
             for f in range(self.num_features):
                 mu_z, std_z = self.generators.get_z_mu_std(x_in)
-                gen_out, _ = self.generators.forward_conditional_multisample_from_z_mu_std(
-                    x_in,
-                    x_current,
-                    list(set(range(self.num_features)) - {f}),
-                    mu_z,
-                    std_z,
-                    self.num_samples,
+                gen_out, _ = (
+                    self.generators.forward_conditional_multisample_from_z_mu_std(
+                        x_in,
+                        x_current,
+                        list(set(range(self.num_features)) - {f}),
+                        mu_z,
+                        std_z,
+                        self.num_samples,
+                    )
                 )
                 # gen_out shape (ns, bs, num_feature, time_forward)
                 counterfactuals[f, :, :, :] = gen_out[:, :, f, :]

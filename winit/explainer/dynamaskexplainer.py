@@ -66,10 +66,10 @@ class DynamaskExplainer(BaseExplainer):
             log = logging.getLogger(DynamaskExplainer.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         self.base_model.eval()
         self.base_model.zero_grad()
-        return self._attribute_multiple(x)
+        return self._attribute_multiple(x, mask)
 
     def _attribute_multiple(self, x):
 

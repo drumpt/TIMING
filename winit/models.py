@@ -174,7 +174,7 @@ class StateClassifier(TorchModel):
             nn.Linear(self.regres_in_size, self.num_states),
         )
 
-    def forward(self, input, mask=None, return_all=True, past_state=None):
+    def forward(self, input, mask=None, return_all=False, past_state=None):
         """
         Specify the forward function for this torch.nn.Module. The forward function should not
         include the activation function at the end. i.e. the output should be in logit space.
@@ -338,7 +338,7 @@ class mTAND(TorchModel):
         out1 = self.linear(tt)
         return torch.cat([out1, out2], -1)
 
-    def forward(self, input, mask, return_all=True):
+    def forward(self, input, mask, return_all=False):
         input = input.permute(0, 2, 1) # B x F x T -> B x T x F
         mask = 1 - mask.permute(0, 2, 1) # B x F x T -> B x T x F
         time_steps = self.query.unsqueeze(0).repeat(input.size(0), 1).unsqueeze(-1)
@@ -524,7 +524,7 @@ class SeFT(TorchModel):
             nn.Linear(nhid, self.output_dim),
         )
 
-    def forward(self, input, mask, return_all=True):
+    def forward(self, input, mask, return_all=False):
         input = input.permute(0, 2, 1)  # B x T x F 
         mask = 1 - mask.permute(0, 2, 1)  # B x T x F
 
