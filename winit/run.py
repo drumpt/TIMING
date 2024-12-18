@@ -206,6 +206,8 @@ class Params:
                 num_epochs = 10
             elif model_type == "LSTM":
                 num_epochs = 30
+            elif model_type in ["MTAND", "SEFT"]:
+                num_epochs = 100
         else:
             num_epochs = 30
         self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
@@ -247,7 +249,8 @@ class Params:
         elif model_type == "CONV":
             return base_path / "conv"
         else:
-            raise Exception("Unknown model type ({})".format(model_type))
+            return base_path / f"{model_type}"
+            # raise Exception("Unknown model type ({})".format(model_type))
 
     def get_maskers(self, explainer: BaseExplainer) -> List[Masker]:
         maskers = []
@@ -320,7 +323,7 @@ if __name__ == '__main__':
     parser.add_argument('--dropout', type=float, default=0.5, help="dropout rate for base model")
     parser.add_argument('--numlayers', type=int, choices=[1, 2, 3], default=1,
                         help="number of layers in an RNN-based base model")
-    parser.add_argument('--modeltype', type=str, default="gru", choices=["conv", "lstm", "gru"],
+    parser.add_argument('--modeltype', type=str, default="gru", choices=["conv", "lstm", "gru", "mtand", "seft"],
                         help="model architecture type for base model")
     parser.add_argument('--lr', type=float, default=None, help="learning rate for model training")
 
@@ -377,9 +380,6 @@ if __name__ == '__main__':
     train_gen = argdict['traingen']
     result_file = argdict["resultfile"]
 
-    print(f"{argdict=}")
-    print(f"{argdict['batchsize']=}")
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     # parse the arg
@@ -397,8 +397,6 @@ if __name__ == '__main__':
         log.info(f"{k:15}: {v}")
     first = True
     save_failed = False
-
-    print(f"{params=}")
 
     all_df = []
     try:

@@ -145,17 +145,12 @@ for i,id in enumerate(icu_id):
 
     ## Extract lab measurement informations
     labs = patient_lab_data.label.unique()
-    # print(f"{labs.shape=}")
     for lab in labs:
         try:
             lab_IDs.index(lab)
             lab_measures = patient_lab_data[patient_lab_data['label']==lab]
             quantized_lab , quantized_measures = quantize_signal(lab_measures, start=admit_time, step_size=1, n_steps=48, value_column='labvalue', charttime_column='labcharttime')
-            # print(f"{quantized_lab=}")
-            # print(f"{quantized_lab.shape=}")
             nan_arr, nan_count = check_nan(quantized_lab)
-            # print(f"for lab {nan_arr.shape=}")
-            # print(f"for lab {nan_count.shape=}")
             x_lab[i, lab_IDs.index(lab) , :] = np.array(quantized_lab)
             nan_map[i,lab_IDs.index(lab)] = nan_count
             masks[i, lab_IDs.index(lab), :] = np.array(nan_arr)
