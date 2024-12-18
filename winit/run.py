@@ -11,10 +11,20 @@ from typing import Dict, Any, List
 import pandas as pd
 import torch.cuda
 
-from winit.dataloader import Mimic, SimulatedSwitch, SimulatedState, SimulatedSpike, \
-    WinITDataset, SimulatedData
-from winit.explainer.explainers import BaseExplainer, DeepLiftExplainer, IGExplainer, \
-    GradientShapExplainer
+from winit.dataloader import (
+    Mimic,
+    SimulatedSwitch,
+    SimulatedState,
+    SimulatedSpike,
+    WinITDataset,
+    SimulatedData,
+)
+from winit.explainer.explainers import (
+    BaseExplainer,
+    DeepLiftExplainer,
+    IGExplainer,
+    GradientShapExplainer,
+)
 from winit.explainer.masker import Masker
 from winit.explanationrunner import ExplanationRunner
 from winit.utils import append_df_to_csv
@@ -74,13 +84,16 @@ class Params:
         data = self.argdict["data"]
         testbs = self.argdict["testbs"]
         batch_size = self.argdict["batchsize"]
-        print(f"{batch_size=}")
         data_path = self.argdict["datapath"]
         data_seed = self.argdict["dataseed"]
         cv_to_use = self.argdict["cv"]
         nondeterministic = self.argdict["nondeterministic"]
-        kwargs = {"batch_size": batch_size, "seed": data_seed, "cv_to_use": cv_to_use,
-                  "deterministic": not nondeterministic}
+        kwargs = {
+            "batch_size": batch_size,
+            "seed": data_seed,
+            "cv_to_use": cv_to_use,
+            "deterministic": not nondeterministic,
+        }
 
         if data == "spike":
             kwargs["testbs"] = 300 if testbs == -1 else testbs
@@ -123,7 +136,7 @@ class Params:
                         "window_size": window,
                         "joint": self.argdict["joint"],
                         "conditional": self.argdict["conditional"],
-                        "usedatadist": self.argdict['usedatadist'],
+                        "usedatadist": self.argdict["usedatadist"],
                         "random_state": self.argdict["explainerseed"],
                     }
                     if nsamples != -1:
@@ -185,16 +198,17 @@ class Params:
         return explainer_dict
 
     def _resolve_model_args(self) -> None:
-        hidden_size = self.argdict['hiddensize']
-        dropout = self.argdict['dropout']
-        num_layers = self.argdict['numlayers']
-        model_type = self.argdict['modeltype'].upper()
-        lr = argdict['lr']
-        self._model_args = {"hidden_size": hidden_size,
-                            "dropout": dropout,
-                            "num_layers": num_layers,
-                            "model_type": model_type,
-                            }
+        hidden_size = self.argdict["hiddensize"]
+        dropout = self.argdict["dropout"]
+        num_layers = self.argdict["numlayers"]
+        model_type = self.argdict["modeltype"].upper()
+        lr = argdict["lr"]
+        self._model_args = {
+            "hidden_size": hidden_size,
+            "dropout": dropout,
+            "num_layers": num_layers,
+            "model_type": model_type,
+        }
 
         if lr is None:
             lr = 1e-4 if isinstance(self._datasets, Mimic) else 1e-3
@@ -220,7 +234,7 @@ class Params:
         self._plotpath = self._resolve_path(base_plot_path, model_type, num_layers)
 
     def _init_logging(self) -> logging.Logger:
-        format = '%(asctime)s %(levelname)8s %(name)25s: %(message)s'
+        format = "%(asctime)s %(levelname)8s %(name)25s: %(message)s"
         log_formatter = logging.Formatter(format)
 
         if argdict["logfile"] is None:
@@ -232,8 +246,9 @@ class Params:
         log_path = pathlib.Path(argdict["logpath"])
         log_path.mkdir(parents=True, exist_ok=True)
         log_file_name = log_path / log_file_name
-        logging.basicConfig(format=format,
-                            level=logging.getLevelName(self.argdict['loglevel'].upper()))
+        logging.basicConfig(
+            format=format, level=logging.getLevelName(self.argdict["loglevel"].upper())
+        )
 
         root_logger = logging.getLogger()
         file_handler = logging.FileHandler(str(log_file_name))
@@ -255,10 +270,12 @@ class Params:
     def get_maskers(self, explainer: BaseExplainer) -> List[Masker]:
         maskers = []
         seed = argdict["maskseed"]
-        absolutize = isinstance(explainer,
-                                (DeepLiftExplainer, IGExplainer, GradientShapExplainer))
-        for drop, aggregate_method in itertools.product(self.argdict["drop"],
-                                                        self.argdict["aggregate"]):
+        absolutize = isinstance(
+            explainer, (DeepLiftExplainer, IGExplainer, GradientShapExplainer)
+        )
+        for drop, aggregate_method in itertools.product(
+            self.argdict["drop"], self.argdict["aggregate"]
+        ):
             if drop == "bal":
                 mask_methods = ["std"]
                 top = self.argdict["top"]
@@ -274,110 +291,252 @@ class Params:
 
             for mask_method in mask_methods:
                 maskers.append(
-                    Masker(mask_method, top, balanced, seed, absolutize, aggregate_method))
+                    Masker(
+                        mask_method, top, balanced, seed, absolutize, aggregate_method
+                    )
+                )
         return maskers
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Run simulated experiments')
-    parser.add_argument('--data', type=str, default='spike',
-                        choices=['spike', 'state', 'switch', 'mimic'], help='Dataset')
-    parser.add_argument('--delay', type=int, default=0, choices=[0, 1, 2, 3, 4],
-                        help='Simulation Spike Delay amount')
-    parser.add_argument('--explainer', nargs='+', type=str, default=['winit'],
-                        choices=['fit', 'winit', 'ig', 'deeplift', 'fo', 'afo', 'gradientshap',
-                                 'dynamask'],
-                        help='Explainer model')
-    parser.add_argument('--cv', nargs='+', type=int, default=[0, 1, 2, 3, 4],
-                        choices=[0, 1, 2, 3, 4], help="CV to run")
-    parser.add_argument('--testbs', type=int, default=-1, help="test batch size")
-    parser.add_argument('--dataseed', type=int, default=1234, help="random state for data split")
-    parser.add_argument('--datapath', type=str, default=None, help="path to data")
-    parser.add_argument('--explainerseed', type=int, default=2345,
-                        help="random state for explainer")
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run simulated experiments")
+    parser.add_argument(
+        "--data",
+        type=str,
+        default="spike",
+        choices=["spike", "state", "switch", "mimic"],
+        help="Dataset",
+    )
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        choices=[0, 1, 2, 3, 4],
+        help="Simulation Spike Delay amount",
+    )
+    parser.add_argument(
+        "--explainer",
+        nargs="+",
+        type=str,
+        default=["winit"],
+        choices=[
+            "fit",
+            "winit",
+            "ig",
+            "deeplift",
+            "fo",
+            "afo",
+            "gradientshap",
+            "dynamask",
+        ],
+        help="Explainer model",
+    )
+    parser.add_argument(
+        "--cv",
+        nargs="+",
+        type=int,
+        default=[0, 1, 2, 3, 4],
+        choices=[0, 1, 2, 3, 4],
+        help="CV to run",
+    )
+    parser.add_argument("--testbs", type=int, default=-1, help="test batch size")
+    parser.add_argument(
+        "--dataseed", type=int, default=1234, help="random state for data split"
+    )
+    parser.add_argument("--datapath", type=str, default=None, help="path to data")
+    parser.add_argument(
+        "--explainerseed", type=int, default=2345, help="random state for explainer"
+    )
 
     # paths
-    parser.add_argument('--outpath', type=str, default="./output/", help="path to output files")
-    parser.add_argument('--ckptpath', type=str, default="./ckpt/",
-                        help="path to model and generator files")
-    parser.add_argument('--plotpath', type=str, default="./plots/", help="path to plotting results")
-    parser.add_argument('--logpath', type=str, default="./logs/", help="path to logging output")
-    parser.add_argument('--resultfile', type=str, default="results.csv",
-                        help="result csv file name")
-    parser.add_argument('--logfile', type=str, default=None, help="log file name")
+    parser.add_argument(
+        "--outpath", type=str, default="./output/", help="path to output files"
+    )
+    parser.add_argument(
+        "--ckptpath",
+        type=str,
+        default="./ckpt/",
+        help="path to model and generator files",
+    )
+    parser.add_argument(
+        "--plotpath", type=str, default="./plots/", help="path to plotting results"
+    )
+    parser.add_argument(
+        "--logpath", type=str, default="./logs/", help="path to logging output"
+    )
+    parser.add_argument(
+        "--resultfile", type=str, default="results.csv", help="result csv file name"
+    )
+    parser.add_argument("--logfile", type=str, default=None, help="log file name")
 
     # run options
-    parser.add_argument('--train', action='store_true', help="Run model training")
-    parser.add_argument('--traingen', action='store_true', help="Run generator training")
-    parser.add_argument('--skipexplain', action='store_true', help="skip explanation generation")
-    parser.add_argument('--eval', action='store_true', help="run feature importance evalation")
-    parser.add_argument('--loglevel', type=str, default='info',
-                        choices=['warning', 'info', 'error', 'debug'],
-                        help='Logging level')
-    parser.add_argument("--nondeterministic", action="store_true",
-                        help="Non-deterministic pytorch.")
+    parser.add_argument("--train", action="store_true", help="Run model training")
+    parser.add_argument(
+        "--traingen", action="store_true", help="Run generator training"
+    )
+    parser.add_argument(
+        "--skipexplain", action="store_true", help="skip explanation generation"
+    )
+    parser.add_argument(
+        "--eval", action="store_true", help="run feature importance evalation"
+    )
+    parser.add_argument(
+        "--loglevel",
+        type=str,
+        default="info",
+        choices=["warning", "info", "error", "debug"],
+        help="Logging level",
+    )
+    parser.add_argument(
+        "--nondeterministic", action="store_true", help="Non-deterministic pytorch."
+    )
 
     # model args and train lr
-    parser.add_argument('--hiddensize', type=int, default=200, help="hidden size for base model")
-    parser.add_argument('--batchsize', type=int, default=100, help="batch size for base model")
-    parser.add_argument('--dropout', type=float, default=0.5, help="dropout rate for base model")
-    parser.add_argument('--numlayers', type=int, choices=[1, 2, 3], default=1,
-                        help="number of layers in an RNN-based base model")
-    parser.add_argument('--modeltype', type=str, default="gru", choices=["conv", "lstm", "gru", "mtand", "seft"],
-                        help="model architecture type for base model")
-    parser.add_argument('--lr', type=float, default=None, help="learning rate for model training")
+    parser.add_argument(
+        "--hiddensize", type=int, default=200, help="hidden size for base model"
+    )
+    parser.add_argument(
+        "--batchsize", type=int, default=100, help="batch size for base model"
+    )
+    parser.add_argument(
+        "--dropout", type=float, default=0.5, help="dropout rate for base model"
+    )
+    parser.add_argument(
+        "--numlayers",
+        type=int,
+        choices=[1, 2, 3],
+        default=1,
+        help="number of layers in an RNN-based base model",
+    )
+    parser.add_argument(
+        "--modeltype",
+        type=str,
+        default="gru",
+        choices=["conv", "lstm", "gru", "mtand", "seft"],
+        help="model architecture type for base model",
+    )
+    parser.add_argument(
+        "--lr", type=float, default=None, help="learning rate for model training"
+    )
 
     # generator args
-    parser.add_argument('--joint', action='store_true', help="use joint generator")
-    parser.add_argument('--conditional', action='store_true', help="use conditional generator")
+    parser.add_argument("--joint", action="store_true", help="use joint generator")
+    parser.add_argument(
+        "--conditional", action="store_true", help="use conditional generator"
+    )
 
     # dynamask args
-    parser.add_argument('--area', type=float, nargs='+', default=None, help='Dynamask Area')
-    parser.add_argument('--blurtype', type=str, choices=['gaussian', 'fadema'], default=None,
-                        help="Dynamask blur type")
-    parser.add_argument('--deletion', type=bool, default=None, help="Run Dynamask in deletion mode")
-    parser.add_argument('--sizereg', type=int, default=None, help="Dynamask size regulator param")
-    parser.add_argument('--timereg', type=int, default=None, help="Dynamask time regulator param")
-    parser.add_argument('--loss', type=str, choices=['logloss', 'ce'], default=None,
-                        help="Dynamask loss type")
-    parser.add_argument('--epoch', type=int, default=200, help="Dynamask Epochs")
-    parser.add_argument('--lastonly', type=str, default=None, choices=["True", "False"],
-                        help="Dynamask use last timestep only")
+    parser.add_argument(
+        "--area", type=float, nargs="+", default=None, help="Dynamask Area"
+    )
+    parser.add_argument(
+        "--blurtype",
+        type=str,
+        choices=["gaussian", "fadema"],
+        default=None,
+        help="Dynamask blur type",
+    )
+    parser.add_argument(
+        "--deletion", type=bool, default=None, help="Run Dynamask in deletion mode"
+    )
+    parser.add_argument(
+        "--sizereg", type=int, default=None, help="Dynamask size regulator param"
+    )
+    parser.add_argument(
+        "--timereg", type=int, default=None, help="Dynamask time regulator param"
+    )
+    parser.add_argument(
+        "--loss",
+        type=str,
+        choices=["logloss", "ce"],
+        default=None,
+        help="Dynamask loss type",
+    )
+    parser.add_argument("--epoch", type=int, default=200, help="Dynamask Epochs")
+    parser.add_argument(
+        "--lastonly",
+        type=str,
+        default=None,
+        choices=["True", "False"],
+        help="Dynamask use last timestep only",
+    )
 
     # WinIT args (and FIT args for samples)
-    parser.add_argument('--window', nargs='+', type=int, default=[10],
-                        help='WinIT window size')
-    parser.add_argument("--winitmetric", type=str, nargs="+", choices=["kl", "js", "pd"],
-                        default=["pd"],
-                        help="WinIT metrics for divergence of distributions")
-    parser.add_argument("--usedatadist", action="store_true",
-                        help="Use samples from data distribution instead of generator to generate "
-                             "masked features in WinIT")
-    parser.add_argument('--samples', type=int, default=-1,
-                        help="Number of samples in generating masked features in  WinIT")
-    parser.add_argument('--top_p', type=float, default=0)
+    parser.add_argument(
+        "--window", nargs="+", type=int, default=[10], help="WinIT window size"
+    )
+    parser.add_argument(
+        "--winitmetric",
+        type=str,
+        nargs="+",
+        choices=["kl", "js", "pd"],
+        default=["pd"],
+        help="WinIT metrics for divergence of distributions",
+    )
+    parser.add_argument(
+        "--usedatadist",
+        action="store_true",
+        help="Use samples from data distribution instead of generator to generate "
+        "masked features in WinIT",
+    )
+    parser.add_argument(
+        "--samples",
+        type=int,
+        default=-1,
+        help="Number of samples in generating masked features in  WinIT",
+    )
+    parser.add_argument("--top_p", type=float, default=0)
 
     # eval args
-    parser.add_argument("--maskseed", type=int, default=43814,
-                        help="Seed for tie breaker on importance scores.")
-    parser.add_argument("--mask", nargs="+", choices=["std", "end"], default=["std", "end"],
-                        help="Mask strategy")
-    parser.add_argument("--top", type=int, default=50,
-                        help="Number of top X observations to mask per time series")
-    parser.add_argument("--toppc", type=float, default=0.05,
-                        help="Percentage of top observations to mask in all time series.")
-    parser.add_argument("--drop", nargs="+", type=str, choices=["local", "global", "bal"],
-                        default=["local", "global", "bal"], help="Masking strategy")
-    parser.add_argument("--aggregate", nargs="+", type=str, choices=["mean", "max", "absmax"],
-                        default=["mean"], help="Aggregating methods for observations over windows.")
+    parser.add_argument(
+        "--maskseed",
+        type=int,
+        default=43814,
+        help="Seed for tie breaker on importance scores.",
+    )
+    parser.add_argument(
+        "--mask",
+        nargs="+",
+        choices=["std", "end", "mam"],
+        default=["std", "end"],
+        help="Mask strategy",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=50,
+        help="Number of top X observations to mask per time series",
+    )
+    parser.add_argument(
+        "--toppc",
+        type=float,
+        default=0.05,
+        help="Percentage of top observations to mask in all time series.",
+    )
+    parser.add_argument(
+        "--drop",
+        nargs="+",
+        type=str,
+        choices=["local", "global", "bal"],
+        default=["local", "global", "bal"],
+        help="Masking strategy",
+    )
+    parser.add_argument(
+        "--aggregate",
+        nargs="+",
+        type=str,
+        choices=["mean", "max", "absmax"],
+        default=["mean"],
+        help="Aggregating methods for observations over windows.",
+    )
 
     argdict = vars(parser.parse_args())
-    data = argdict['data']
-    explainers = argdict['explainer']
-    skip_explain = argdict['skipexplain']
-    eval_explain = argdict['eval']
-    train_models = argdict['train']
-    train_gen = argdict['traingen']
+    data = argdict["data"]
+    explainers = argdict["explainer"]
+    skip_explain = argdict["skipexplain"]
+    eval_explain = argdict["eval"]
+    train_models = argdict["train"]
+    train_gen = argdict["traingen"]
     result_file = argdict["resultfile"]
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -416,22 +575,31 @@ if __name__ == '__main__':
             generators_to_train = params.generators_to_train
             for explainer_name, explainer_dict_list in generators_to_train.items():
                 for explainer_dict in explainer_dict_list:
-                    runner.get_explainers(argdict, explainer_name, explainer_dict=explainer_dict)
+                    runner.get_explainers(
+                        argdict, explainer_name, explainer_dict=explainer_dict
+                    )
                     log.info(
-                        f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}")
+                        f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}"
+                    )
                     runner.train_generators(num_epochs=300)
             log.info("Training Generator Done.")
 
         for explainer_name, explainer_dict_list in all_explainer_dict.items():
             for explainer_dict in explainer_dict_list:
                 # generate feature importance
-                runner.clean_up(clean_importance=True, clean_explainer=True, clean_model=False)
-                runner.get_explainers(argdict, explainer_name, explainer_dict=explainer_dict)
+                runner.clean_up(
+                    clean_importance=True, clean_explainer=True, clean_model=False
+                )
+                runner.get_explainers(
+                    argdict, explainer_name, explainer_dict=explainer_dict
+                )
                 runner.set_model_for_explainer(set_eval=explainer_name != "fit")
 
                 if not skip_explain:
-                    log.info(f"Running Explanations..."
-                             f"Data={dataset.get_name()}, Explainer={explainer_name}, Dict={explainer_dict}")
+                    log.info(
+                        f"Running Explanations..."
+                        f"Data={dataset.get_name()}, Explainer={explainer_name}, Dict={explainer_dict}"
+                    )
 
                     runner.load_generators()
                     runner.run_attributes()
@@ -448,8 +616,12 @@ if __name__ == '__main__':
                     if isinstance(dataset, SimulatedData):
                         df = runner.evaluate_simulated_importance(argdict["aggregate"])
                     else:
-                        maskers = params.get_maskers(next(iter(runner.explainers.values())))
-                        df = runner.evaluate_performance_drop(maskers, use_last_time_only=True)
+                        maskers = params.get_maskers(
+                            next(iter(runner.explainers.values()))
+                        )
+                        df = runner.evaluate_performance_drop(
+                            maskers, use_last_time_only=True
+                        )
                     log.info("Evaluating importance done.")
 
                     # Prepare the result dataframe to be saved.
@@ -474,8 +646,9 @@ if __name__ == '__main__':
     except (Exception, KeyboardInterrupt) as e:
         if save_failed and len(all_df) > 0:
             result_file_bak = result_file + ".bak"
-            pd.concat(all_df, axis=0, ignore_index=True).to_csv(str(out_path / result_file_bak),
-                                                                index=False)
+            pd.concat(all_df, axis=0, ignore_index=True).to_csv(
+                str(out_path / result_file_bak), index=False
+            )
             log.info(f"Error! Emergency saved to {out_path / result_file_bak}")
         log.info(f"Time elapsed: {time.time() - start_time}")
         log.exception(e)

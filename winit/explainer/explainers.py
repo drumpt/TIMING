@@ -30,7 +30,7 @@ class BaseExplainer(abc.ABC):
         self.args = args
 
     @abc.abstractmethod
-    def attribute(self, x):
+    def attribute(self, x, mask):
         """
         The attribution method that the explainer will give.
         Args:
@@ -116,7 +116,7 @@ class MockExplainer(BaseExplainer):
     def __init__(self):
         super().__init__()
 
-    def attribute(self, x, **kwargs):
+    def attribute(self, x, mask, **kwargs):
         return np.zeros(x.shape)
 
     def get_name(self):
@@ -137,7 +137,7 @@ class DeepLiftExplainer(BaseExplainer):
         super().set_model(model)
         self.explainer = DeepLift(self.base_model)
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         self.base_model.zero_grad()
         self.base_model.eval()
 
@@ -145,8 +145,12 @@ class DeepLiftExplainer(BaseExplainer):
         orig_cudnn_setting = torch.backends.cudnn.enabled
         torch.backends.cudnn.enabled = False
 
-        assert self.base_model.num_states == 1, "TODO: Implement retrospective for > 1 class"
-        score = self.explainer.attribute(x, baselines=(x * 0), additional_forward_args=(False))
+        assert (
+            self.base_model.num_states == 1
+        ), "TODO: Implement retrospective for > 1 class"
+        score = self.explainer.attribute(
+            x, baselines=(x * 0), additional_forward_args=(False)
+        )
         score = abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -169,7 +173,7 @@ class FOExplainer(BaseExplainer):
             log = logging.getLogger(FOExplainer.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         self.base_model.eval()
         self.base_model.zero_grad()
 
@@ -183,7 +187,9 @@ class FOExplainer(BaseExplainer):
                 x_hat = x[:, :, 0 : t + 1].clone()
                 kl_all = []
                 for _ in range(self.n_samples):
-                    x_hat[:, i, t] = torch.Tensor(np.random.uniform(-3, +3, size=(len(x),)))
+                    x_hat[:, i, t] = torch.Tensor(
+                        np.random.uniform(-3, +3, size=(len(x),))
+                    )
                     y_hat_t = self.base_model.predict(x_hat, return_all=False)
                     kl = torch.abs(y_hat_t - p_y_t)
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
@@ -213,7 +219,7 @@ class AFOExplainer(BaseExplainer):
             log = logging.getLogger(AFOExplainer.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         x = x.to(self.device)
         _, n_features, t_len = x.shape
         score = np.zeros(x.shape)
@@ -258,7 +264,7 @@ class IGExplainer(BaseExplainer):
         super().set_model(model, set_eval=set_eval)
         self.explainer = IntegratedGradients(self.base_model)
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         self.base_model.zero_grad()
         self.base_model.eval()
 
@@ -267,7 +273,9 @@ class IGExplainer(BaseExplainer):
         torch.backends.cudnn.enabled = False
 
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
-        score = self.explainer.attribute(x, baselines=(x * 0), additional_forward_args=(False))
+        score = self.explainer.attribute(
+            x, baselines=(x * 0), additional_forward_args=(False)
+        )
         score = np.abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -291,7 +299,7 @@ class GradientShapExplainer(BaseExplainer):
         super().set_model(model, set_eval=set_eval)
         self.explainer = GradientShap(self.base_model)
 
-    def attribute(self, x):
+    def attribute(self, x, mask):
         self.base_model.zero_grad()
         self.base_model.eval()
 
@@ -302,7 +310,11 @@ class GradientShapExplainer(BaseExplainer):
         x = x.to(self.device)
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
         score = self.explainer.attribute(
-            x, n_samples=50, stdevs=0.0001, baselines=torch.cat([x * 0, x * 1]), additional_forward_args=(False)
+            x,
+            n_samples=50,
+            stdevs=0.0001,
+            baselines=torch.cat([x * 0, x * 1]),
+            additional_forward_args=(False),
         )
         score = abs(score.cpu().numpy())
 
