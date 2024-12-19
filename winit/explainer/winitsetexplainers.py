@@ -17,7 +17,7 @@ from winit.explainer.generator.generator import (
 from winit.explainer.generator.jointgenerator import JointFeatureGenerator
 
 
-class WinITExplainer(BaseExplainer):
+class WinITSetExplainer(BaseExplainer):
     """
     The explainer for our method WinIT
     """
@@ -89,11 +89,13 @@ class WinITExplainer(BaseExplainer):
             self.data_distribution = None
         self.rng = np.random.default_rng(random_state)
 
-        self.log = logging.getLogger(WinITExplainer.__name__)
+        self.log = logging.getLogger(WinITSetExplainer.__name__)
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
     def _model_predict(self, x, mask=None):
+        # print(f"{x=}")
+        # print(f"in _model_predict {x.shape=}")
         """
         Run predict on base model. If the output is binary, i.e. num_class = 1, we will make it
         into a probability distribution by append (p, 1-p) to it.
@@ -107,104 +109,88 @@ class WinITExplainer(BaseExplainer):
 
     def attribute(self, x, mask=None):
         """
-        Compute the WinIT attribution.
+        Compute the WinIT attribution only for the final timestep prediction.
 
         Args:
-            x:
-                The input Tensor of shape (batch_size, num_features, num_times)
+            x: The input Tensor of shape (batch_size, num_features, num_timesteps)
+            mask: Mask tensor indicating invalid positions
 
         Returns:
-            The attribution Tensor of shape (batch_size, num_features, num_times, window_size)
-            The (i, j, k, l)-entry is the importance of observation (i, j, k - window_size + l + 1)
-            to the prediction at time k
-
+            The attribution Tensor of shape (batch_size, num_features, num_timesteps)
+            The (i, j, k)-entry is the importance of observation (i, j, k) to the final prediction
         """
         self.base_model.eval()
         self.base_model.zero_grad()
 
+        corr = self.calculate_per_sample_correlations(x)
+
         with torch.no_grad():
             tic = time()
-
             batch_size, num_features, num_timesteps = x.shape
-            scores = []
-            for t in range(num_timesteps):
-                window_size = min(t, self.window_size)
-                if t == 0:
-                    scores.append(
-                        np.zeros((batch_size, num_features, self.window_size))
-                    )
-                    continue
 
-                p_y = self._model_predict(
-                    x[:, :, : t + 1],
-                    mask[:, :, : t + 1]
+            # Get prediction for full sequence
+            p_y = self._model_predict(x, mask)
+
+            # Initialize scores array
+            scores = np.zeros((batch_size, num_features, num_timesteps), dtype=float)
+
+            # For each timestep in the past
+            for time_past in range(num_timesteps):
+                time_forward = num_timesteps - time_past
+
+                # Generate counterfactuals
+                counterfactuals = torch.zeros(
+                    num_features,  # feature dimension
+                    self.num_samples,  # number of Monte-Carlo samples
+                    batch_size,  # batch size
+                    num_timesteps - time_past,  # time forward
+                    device=x.device,  # same device as input
                 )
-                iS_array = np.zeros(
-                    (num_features, window_size, batch_size), dtype=float
-                )
-                for n in range(window_size):
-                    time_past = t - n
-                    time_forward = n + 1
-                    counterfactuals = self._generate_counterfactuals(
-                        time_forward, x[:, :, :time_past], x[:, :, time_past : t + 1]
+
+                # For each feature
+                for f in range(num_features):
+                    # Repeat input for num samples
+                    x_hat_in = x.unsqueeze(0).repeat(
+                        self.num_samples, 1, 1, 1
+                    )  # (ns, bs, f, time)
+
+                    # Replace values with counterfactuals
+                    x_hat_in[:, :, f, time_past:num_timesteps] = counterfactuals[
+                        f, :, :, :
+                    ]
+                    mask_hat_in = mask.unsqueeze(0).repeat(self.num_samples, 1, 1, 1)
+                    mask_hat_in[:, :, f, time_past:num_timesteps] = 1  # Doesn't exist
+
+                    # Get predictions for counterfactuals
+                    p_y_hat = self._model_predict(
+                        x_hat_in.reshape(
+                            self.num_samples * batch_size, num_features, num_timesteps
+                        ),
+                        mask_hat_in.reshape(
+                            self.num_samples * batch_size, num_features, num_timesteps
+                        ),
                     )
 
-                    # counterfactual shape = (num_feat, num_samples, batch_size, time_forward)
-                    for f in range(num_features):
-                        # repeat input for num samples
-                        x_hat_in = (
-                            x[:, :, : t + 1]
-                            .unsqueeze(0)
-                            .repeat(self.num_samples, 1, 1, 1)
-                        )  # (ns, bs, f, time)
-
-                        # replace unknown with counterfactuals
-                        x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[
-                            f, :, :, :
-                        ]
-                        mask_hat_in = (
-                            mask[:, :, : t +1]
-                            .unsqueeze(0)
-                            .repeat(self.num_samples, 1, 1, 1)
-                        )
-                        mask_hat_in[:, :, f, time_past : t + 1] = 0  # Values are exist
-                        p_y_hat = self._model_predict(
-                            x_hat_in.reshape(
-                                self.num_samples * batch_size, num_features, t + 1
-                            ),
-                            mask_hat_in.reshape(
-                                self.num_samples * batch_size, num_features, t + 1
-                            ),
-                        )
-                        p_y_exp = (
-                            p_y.unsqueeze(0)
-                            .repeat(self.num_samples, 1, 1)
-                            .reshape(self.num_samples * batch_size, p_y.shape[-1])
-                        )
-                        iSab_sample = self._compute_metric(p_y_exp, p_y_hat).reshape(
-                            self.num_samples, batch_size
-                        )
-                        iSab = torch.mean(iSab_sample, dim=0).detach().cpu().numpy()
-                        # For KL, the metric can be unbounded. We clip it for numerical stability.
-                        iSab = np.clip(iSab, -1e6, 1e6)
-                        iS_array[f, n, :] = iSab
-
-                # Compute the I(S) array
-                b = iS_array[:, 1:, :] - iS_array[:, :-1, :]
-                iS_array[:, 1:, :] = b
-
-                score = iS_array[:, ::-1, :].transpose(2, 0, 1)  # (bs, nfeat, time)
-                # Pad the scores when time forward is less than window size.
-                if score.shape[2] < self.window_size:
-                    score = np.pad(
-                        score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0))
+                    # Expand original predictions
+                    p_y_exp = (
+                        p_y.unsqueeze(0)
+                        .repeat(self.num_samples, 1, 1)
+                        .reshape(self.num_samples * batch_size, p_y.shape[-1])
                     )
-                scores.append(score)
-            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")
 
-            scores = np.stack(scores).transpose(
-                (1, 2, 0, 3)
-            )  # (bs, fts, ts, window_size)
+                    # Compute importance scores
+                    iSab_sample = self._compute_metric(p_y_exp, p_y_hat).reshape(
+                        self.num_samples, batch_size
+                    )
+                    iSab = torch.mean(iSab_sample, dim=0).detach().cpu().numpy()
+
+                    # Clip for numerical stability
+                    iSab = np.clip(iSab, -1e6, 1e6)
+                    scores[:, f, time_past] = iSab
+
+            # Compute the differences for consecutive timesteps
+            scores[:, :, 1:] = scores[:, :, 1:] - scores[:, :, :-1]
+            self.log.info(f"Attribution completed: Time elapsed: {(time() - tic):.4f}")
             return scores
 
     def calculate_per_sample_correlations(self, data):

@@ -107,8 +107,10 @@ class FITExplainer(BaseExplainer):
 
             for i in range(n_features):
                 mu_z, std_z = self.generator.get_z_mu_std(x[:, :, :t])
-                x_hat_t, _ = self.generator.forward_conditional_multisample_from_z_mu_std(
-                    x[:, :, :t], x[:, :, t], [i], mu_z, std_z, self.n_samples
+                x_hat_t, _ = (
+                    self.generator.forward_conditional_multisample_from_z_mu_std(
+                        x[:, :, :t], x[:, :, t], [i], mu_z, std_z, self.n_samples
+                    )
                 )
                 x_hat = x[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
                 x_hat[:, :, :, t] = x_hat_t[:, :, :, 0]
@@ -121,7 +123,10 @@ class FITExplainer(BaseExplainer):
                 )
                 p_y_t_expanded = p_y_t.unsqueeze(0).expand(self.n_samples, -1, -1)
                 second_term = torch.sum(
-                    torch.nn.KLDivLoss(reduction="none")(torch.log(y_hat_t), p_y_t_expanded), -1
+                    torch.nn.KLDivLoss(reduction="none")(
+                        torch.log(y_hat_t), p_y_t_expanded
+                    ),
+                    -1,
                 )
                 div = first_term.unsqueeze(0) - second_term
                 E_div = torch.mean(div, dim=0).detach().cpu().numpy()

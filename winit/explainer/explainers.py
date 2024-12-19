@@ -149,8 +149,8 @@ class DeepLiftExplainer(BaseExplainer):
             self.base_model.num_states == 1
         ), "TODO: Implement retrospective for > 1 class"
         score = self.explainer.attribute(
-            x, baselines=(x * 0), additional_forward_args=(False)
-        )
+            (x, mask), baselines=(x * 0, mask), additional_forward_args=(False)
+        )[0]
         score = abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -158,6 +158,81 @@ class DeepLiftExplainer(BaseExplainer):
 
     def get_name(self):
         return "deeplift"
+
+
+class IGExplainer(BaseExplainer):
+    """
+    The explainer for integrated gradients using zeros as the baseline and the captum
+    implementation. Multiclass case is not implemented.
+    """
+
+    def __init__(self, device):
+        super().__init__(device)
+        self.explainer = None
+
+    def set_model(self, model, set_eval=True):
+        super().set_model(model, set_eval=set_eval)
+        self.explainer = IntegratedGradients(self.base_model)
+
+    def attribute(self, x, mask):
+        self.base_model.zero_grad()
+        self.base_model.eval()
+
+        # Save and restore cudnn enabled
+        orig_cudnn_setting = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+
+        assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
+        score = self.explainer.attribute(
+            (x, mask), baselines=(x * 0, mask), additional_forward_args=(False)
+        )[0]
+        score = np.abs(score.detach().cpu().numpy())
+
+        torch.backends.cudnn.enabled = orig_cudnn_setting
+        return score
+
+    def get_name(self):
+        return "ig"
+
+
+class GradientShapExplainer(BaseExplainer):
+    """
+    The explainer for gradient shap using zeros as the baseline and the captum
+    implementation. Multiclass case is not implemented.
+    """
+
+    def __init__(self, device):
+        super().__init__(device)
+        self.explainer = None
+
+    def set_model(self, model, set_eval=True):
+        super().set_model(model, set_eval=set_eval)
+        self.explainer = GradientShap(self.base_model)
+
+    def attribute(self, x, mask):
+        self.base_model.zero_grad()
+        self.base_model.eval()
+
+        # Save and restore cudnn enabled
+        orig_cudnn_setting = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+
+        x = x.to(self.device)
+        assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
+        score = self.explainer.attribute(
+            (x, mask),
+            n_samples=50,
+            stdevs=0.0001,
+            baselines=(torch.cat([x * 0, x * 1]), torch.cat([mask, mask])),
+            additional_forward_args=(False),
+        )[0]
+        score = abs(score.cpu().numpy())
+
+        torch.backends.cudnn.enabled = orig_cudnn_setting
+        return score
+
+    def get_name(self):
+        return "gradientshap"
 
 
 class FOExplainer(BaseExplainer):
@@ -182,7 +257,11 @@ class FOExplainer(BaseExplainer):
         score = np.zeros(x.shape)
 
         for t in range(1, t_len):
-            p_y_t = self.base_model.predict(x[:, :, : t + 1], return_all=False)
+            p_y_t = self.base_model.predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                return_all=False
+            )
             for i in range(n_features):
                 x_hat = x[:, :, 0 : t + 1].clone()
                 kl_all = []
@@ -190,7 +269,11 @@ class FOExplainer(BaseExplainer):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.uniform(-3, +3, size=(len(x),))
                     )
-                    y_hat_t = self.base_model.predict(x_hat, return_all=False)
+                    y_hat_t = self.base_model.predict(
+                        x_hat,
+                        mask[:, :, 0 : t + 1],
+                        return_all=False
+                    )
                     kl = torch.abs(y_hat_t - p_y_t)
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
                 E_kl = np.mean(np.array(kl_all), axis=0)
@@ -228,7 +311,11 @@ class AFOExplainer(BaseExplainer):
         self.base_model.zero_grad()
 
         for t in range(1, t_len):
-            p_y_t = self.base_model.predict(x[:, :, : t + 1], return_all=False)
+            p_y_t = self.base_model.predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                return_all=False
+            )
             for i in range(n_features):
                 feature_dist = np.array(self.data_distribution[:, i, :]).reshape(-1)
                 x_hat = x[:, :, 0 : t + 1].clone()
@@ -237,7 +324,11 @@ class AFOExplainer(BaseExplainer):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.choice(feature_dist, size=(len(x),))
                     ).to(self.device)
-                    y_hat_t = self.base_model.predict(x_hat, return_all=False)
+                    y_hat_t = self.base_model.predict(
+                        x_hat,
+                        mask[:, :, 0 : t + 1],
+                        return_all=False
+                    )
                     kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
                 E_kl = np.mean(np.array(kl_all), axis=0)
@@ -248,78 +339,3 @@ class AFOExplainer(BaseExplainer):
         if self.n_samples != 10:
             return f"afo_sample_{self.n_samples}"
         return "afo"
-
-
-class IGExplainer(BaseExplainer):
-    """
-    The explainer for integrated gradients using zeros as the baseline and the captum
-    implementation. Multiclass case is not implemented.
-    """
-
-    def __init__(self, device):
-        super().__init__(device)
-        self.explainer = None
-
-    def set_model(self, model, set_eval=True):
-        super().set_model(model, set_eval=set_eval)
-        self.explainer = IntegratedGradients(self.base_model)
-
-    def attribute(self, x, mask):
-        self.base_model.zero_grad()
-        self.base_model.eval()
-
-        # Save and restore cudnn enabled
-        orig_cudnn_setting = torch.backends.cudnn.enabled
-        torch.backends.cudnn.enabled = False
-
-        assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
-        score = self.explainer.attribute(
-            x, baselines=(x * 0), additional_forward_args=(False)
-        )
-        score = np.abs(score.detach().cpu().numpy())
-
-        torch.backends.cudnn.enabled = orig_cudnn_setting
-        return score
-
-    def get_name(self):
-        return "ig"
-
-
-class GradientShapExplainer(BaseExplainer):
-    """
-    The explainer for gradient shap using zeros as the baseline and the captum
-    implementation. Multiclass case is not implemented.
-    """
-
-    def __init__(self, device):
-        super().__init__(device)
-        self.explainer = None
-
-    def set_model(self, model, set_eval=True):
-        super().set_model(model, set_eval=set_eval)
-        self.explainer = GradientShap(self.base_model)
-
-    def attribute(self, x, mask):
-        self.base_model.zero_grad()
-        self.base_model.eval()
-
-        # Save and restore cudnn enabled
-        orig_cudnn_setting = torch.backends.cudnn.enabled
-        torch.backends.cudnn.enabled = False
-
-        x = x.to(self.device)
-        assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
-        score = self.explainer.attribute(
-            x,
-            n_samples=50,
-            stdevs=0.0001,
-            baselines=torch.cat([x * 0, x * 1]),
-            additional_forward_args=(False),
-        )
-        score = abs(score.cpu().numpy())
-
-        torch.backends.cudnn.enabled = orig_cudnn_setting
-        return score
-
-    def get_name(self):
-        return "gradientshap"

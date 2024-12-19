@@ -322,6 +322,7 @@ if __name__ == "__main__":
         choices=[
             "fit",
             "winit",
+            "winitset",
             "ig",
             "deeplift",
             "fo",

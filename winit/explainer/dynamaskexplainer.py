@@ -71,16 +71,17 @@ class DynamaskExplainer(BaseExplainer):
         self.base_model.zero_grad()
         return self._attribute_multiple(x, mask)
 
-    def _attribute_multiple(self, x):
+    def _attribute_multiple(self, x, mask_in):
 
         orig_cudnn_setting = torch.backends.cudnn.enabled
         torch.backends.cudnn.enabled = False
 
-        def f(x_in):
+        def f(x_in, mask_in):
             # x_in (num_sample, num_time, num_feature)
             num_sample, num_times, num_features = x_in.shape
             x_in = x_in.permute(0, 2, 1)
-            out = self.base_model(x_in, return_all=True)  # (num_sample, num_state=1, num_time)
+            mask_in = mask_in.permute(0, 2, 1)
+            out = self.base_model(x_in, mask_in, return_all=True)  # (num_sample, num_state=1, num_time)
             out = self.base_model.activation(out).reshape(num_sample, num_times)
             if self.num_class == 1:
                 # stack
@@ -93,6 +94,7 @@ class DynamaskExplainer(BaseExplainer):
             return out  # (num_sample, num_time, 2 or num_state)
 
         x = x.permute(0, 2, 1)
+        mask_in = mask_in.permute(0, 2, 1)
 
         # Fit the group of mask:
         mask_group = MaskGroup(
@@ -100,6 +102,7 @@ class DynamaskExplainer(BaseExplainer):
         )
         mask_group.fit_multiple(
             X=x,
+            mask=mask_in,
             f=f,
             use_last_timestep_only=self.use_last_timestep_only,
             loss_function_multiple=self.loss,
@@ -114,7 +117,7 @@ class DynamaskExplainer(BaseExplainer):
         )
 
         # Extract the extremal mask:
-        y_test = f(x).unsqueeze(0)
+        y_test = f(x, mask_in).unsqueeze(0)
         thresh = cross_entropy_multiple(y_test, y_test)  # This is what we call epsilon in the paper
         mask = mask_group.get_extremal_mask_multiple(thresholds=thresh)
         mask_saliency = mask.permute(0, 2, 1)
