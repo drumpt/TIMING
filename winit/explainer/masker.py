@@ -208,9 +208,11 @@ class Masker:
 
         return new_xs
 
-
     def missing_aware_mask(
-        self, x_test: np.ndarray, mask: np.ndarray, importance_scores: Dict[int, np.ndarray]
+        self,
+        x_test: np.ndarray,
+        mask: np.ndarray,
+        importance_scores: Dict[int, np.ndarray],
     ) -> Dict[int, np.ndarray]:
         new_xs = {}
         start_masked_count = {}
@@ -276,7 +278,9 @@ class Masker:
                         # Apply carry forward masking
                         if start_time > 0:
                             value_to_forward = new_x[b, feature_idx, start_time - 1]
-                            new_x[b, feature_idx, start_time:end_time] = value_to_forward
+                            new_x[b, feature_idx, start_time:end_time] = (
+                                value_to_forward
+                            )
                             masked[b, feature_idx, start_time:end_time] = True
                             start_masked[b, feature_idx, start_time] = (
                                 True  # Mark start of masking

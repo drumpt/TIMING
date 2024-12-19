@@ -69,7 +69,7 @@ class TorchModel(nn.Module, abc.ABC):
             A tensor of shape (num_samples, num_states, num_times) if return_all is True. Otherwise,
             a tensor of shape (num_samples, num_states) is returned.
         """
-        return self.activation(self.forward(input, mask=None, return_all=return_all))
+        return self.activation(self.forward(input, mask, return_all))
 
 
 class ConvClassifier(TorchModel):
@@ -339,11 +339,12 @@ class mTAND(TorchModel):
         return torch.cat([out1, out2], -1)
 
     def forward(self, input, mask, return_all=False):
-        input = input.permute(0, 2, 1) # B x F x T -> B x T x F
-        mask = 1 - mask.permute(0, 2, 1) # B x F x T -> B x T x F
-        time_steps = self.query.unsqueeze(0).repeat(input.size(0), 1).unsqueeze(-1)
+        input = input.permute(0, 2, 1)  # B x F x T -> B x T x F
+        mask = 1 - mask.permute(0, 2, 1)  # B x F x T -> B x T x F
 
-        input[mask == 0] = 0
+        time_steps = torch.linspace(0, 1, input.shape[1]).unsqueeze(0).repeat(input.size(0), 1).unsqueeze(-1).to(input.device)
+
+        input = input * (mask > 0).float()  # Zeroize masked values
 
         x = torch.cat((input, mask), 2)
         mask = x[:, :, self.feature_size :]
@@ -485,7 +486,7 @@ class SetAttentionLayer(nn.Module):
 class SeFT(TorchModel):
     def __init__(self, feature_size, num_timesteps, num_states, device, nhid=128):
         super().__init__(feature_size, num_states, nhid, device)
-        
+
         self.feature_size = feature_size
         self.num_timesteps = num_timesteps
         self.output_dim = num_states
@@ -525,7 +526,7 @@ class SeFT(TorchModel):
         )
 
     def forward(self, input, mask, return_all=False):
-        input = input.permute(0, 2, 1)  # B x T x F 
+        input = input.permute(0, 2, 1)  # B x T x F
         mask = 1 - mask.permute(0, 2, 1)  # B x T x F
 
         batch_size, seq_len, _ = input.shape
@@ -533,7 +534,7 @@ class SeFT(TorchModel):
 
         # Create time values and reshape input/mask
         values = input  # [B, T, F]
-        masks = mask   # [B, T, F]
+        masks = mask  # [B, T, F]
         times = torch.linspace(0, 1, seq_len, device=device)  # [T]
         times = times.unsqueeze(0).repeat(batch_size, 1)  # [B, T]
 
@@ -542,7 +543,9 @@ class SeFT(TorchModel):
         masks_reshaped = masks.reshape(batch_size, -1)  # [B, T*F]
 
         # Now repeat times for each feature
-        times_repeated = times.unsqueeze(-1).repeat(1, 1, self.feature_size)  # [B, T, F]
+        times_repeated = times.unsqueeze(-1).repeat(
+            1, 1, self.feature_size
+        )  # [B, T, F]
         times_reshaped = times_repeated.reshape(batch_size, -1)  # [B, T*F]
 
         # Apply masking
@@ -550,13 +553,17 @@ class SeFT(TorchModel):
         times_masked = times_reshaped * (masks_reshaped > 0).float()
 
         # Get time encoding using masked times
-        times_for_encoding = times_masked.reshape(batch_size, seq_len, self.feature_size)  # [B, T, F]
-        transformed_times = self.pos_encoder(times_for_encoding.unsqueeze(-1))  # [B, T, F, pos_dim]
+        times_for_encoding = times_masked.reshape(
+            batch_size, seq_len, self.feature_size
+        )  # [B, T, F]
+        transformed_times = self.pos_encoder(
+            times_for_encoding.unsqueeze(-1)
+        )  # [B, T, F, pos_dim]
 
         # One-hot encode modalities
         modality_encoding = F.one_hot(
-            torch.arange(self.feature_size, device=device), 
-            num_classes=self.feature_size
+            torch.arange(self.feature_size, device=device),
+            num_classes=self.feature_size,
         )  # [F, F]
         modality_encoding = (
             modality_encoding.unsqueeze(0)
@@ -570,11 +577,14 @@ class SeFT(TorchModel):
         )  # [B, T, F, 1]
 
         # Combine features
-        combined_values = torch.cat([
-            transformed_times,     # [B, T, F, pos_dim]
-            values_for_concat,     # [B, T, F, 1]
-            modality_encoding      # [B, T, F, F]
-        ], dim=-1)
+        combined_values = torch.cat(
+            [
+                transformed_times,  # [B, T, F, pos_dim]
+                values_for_concat,  # [B, T, F, 1]
+                modality_encoding,  # [B, T, F, F]
+            ],
+            dim=-1,
+        )
 
         # Reshape to set format
         combined_values = combined_values.reshape(
@@ -589,37 +599,50 @@ class SeFT(TorchModel):
 
         if return_all:
             # Create time step masks for all steps at once [T, T*F]
-            time_masks = torch.zeros(seq_len, seq_len * self.feature_size, device=device)
+            time_masks = torch.zeros(
+                seq_len, seq_len * self.feature_size, device=device
+            )
             feature_blocks = torch.arange(seq_len, device=device) * self.feature_size
             time_masks.scatter_(
                 1,
-                feature_blocks.unsqueeze(1).expand(-1, self.feature_size) + torch.arange(self.feature_size, device=device),
-                1.0
+                feature_blocks.unsqueeze(1).expand(-1, self.feature_size)
+                + torch.arange(self.feature_size, device=device),
+                1.0,
             )
-            
+
             # Expand masks for batch and heads
             time_masks = time_masks.unsqueeze(0).unsqueeze(1)  # [1, 1, T, T*F]
-            time_masks = time_masks.expand(batch_size, self.num_heads, -1, -1)  # [B, h, T, T*F]
-            
+            time_masks = time_masks.expand(
+                batch_size, self.num_heads, -1, -1
+            )  # [B, h, T, T*F]
+
             # Apply masked attention for all time steps at once
             attention_expanded = attention_weights.unsqueeze(2)  # [B, h, 1, T*F]
             masked_attention = attention_expanded * time_masks  # [B, h, T, T*F]
-            
+
             # Process all time steps in parallel
-            encoded_expanded = encoded.unsqueeze(1).unsqueeze(2)  # [B, 1, 1, T*F, hidden]
-            time_attended = masked_attention.unsqueeze(-1) * encoded_expanded  # [B, h, T, T*F, hidden]
+            encoded_expanded = encoded.unsqueeze(1).unsqueeze(
+                2
+            )  # [B, 1, 1, T*F, hidden]
+            time_attended = (
+                masked_attention.unsqueeze(-1) * encoded_expanded
+            )  # [B, h, T, T*F, hidden]
             time_features = time_attended.sum(dim=3)  # [B, h, T, hidden]
-            
+
             # Prepare features for output network
             time_combined = time_features.permute(0, 2, 1, 3)  # [B, T, h, hidden]
-            time_combined = time_combined.reshape(batch_size * seq_len, -1)  # [B*T, h*hidden]
-            
+            time_combined = time_combined.reshape(
+                batch_size * seq_len, -1
+            )  # [B*T, h*hidden]
+
             # Get predictions for all time steps
             output = self.output_net(time_combined)  # [B*T, output_dim]
             output = output.reshape(batch_size, seq_len, -1)  # [B, T, output_dim]
         else:
             # Single prediction using all time steps
-            attended = encoded_expanded * attention_weights.unsqueeze(-1)  # [B, h, T*F, hidden]
+            attended = encoded_expanded * attention_weights.unsqueeze(
+                -1
+            )  # [B, h, T*F, hidden]
             head_features = attended.sum(dim=2)  # [B, h, hidden]
             combined_features = head_features.reshape(batch_size, -1)  # [B, h*hidden]
             output = self.output_net(combined_features)

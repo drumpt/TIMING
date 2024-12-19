@@ -59,6 +59,7 @@ class MaskGroup:
     def fit(
         self,
         X,
+        mask,
         f,
         area_list,
         loss_function,
@@ -103,9 +104,10 @@ class MaskGroup:
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
+        self.mask = mask
         self.n_epoch = n_epoch
         self.T, self.N_features = X.shape
-        self.Y_target = f(X)
+        self.Y_target = f(X, mask)
         # The initial mask tensor has all coefficients set to initial_mask_coeff
         self.masks_tensor = initial_mask_coeff * torch.ones(size=(N_area, self.T, self.N_features), device=self.device)
         # The target is the same for each mask so we simply repeat it along the first axis
@@ -183,6 +185,7 @@ class MaskGroup:
     def fit_multiple(
         self,
         X,
+        mask,
         f,
         area_list,
         loss_function_multiple,
@@ -209,9 +212,10 @@ class MaskGroup:
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
+        self.mask = mask
         self.n_epoch = n_epoch
         num_samples, self.T, self.N_features = X.shape
-        self.Y_target = f(X) # num_samples, num_time, num_state=2
+        self.Y_target = f(X, mask) # num_samples, num_time, num_state=2
         if use_last_timestep_only:
             self.Y_target = self.Y_target[:, -1:, :]
         # The initial mask tensor has all coefficients set to initial_mask_coeff
@@ -245,7 +249,9 @@ class MaskGroup:
             # f(x_pert) = (T, num_state)
             # Y_pert = (n_area, T, num_state)
             X_pert_flatten = X_pert.reshape(N_area * num_samples, self.T, self.N_features)
-            Y_pert_flatten = f(X_pert_flatten) # (N_area * num_samples, T, num_state)
+            mask_repeated = self.mask.unsqueeze(0).repeat(N_area, 1, 1, 1)  # [N_area, num_samples, T, N_features]
+            mask_pert_flatten = mask_repeated.reshape(N_area * num_samples, self.T, self.N_features)
+            Y_pert_flatten = f(X_pert_flatten, mask_pert_flatten) # (N_area * num_samples, T, num_state)
             if use_last_timestep_only:
                 Y_pert = Y_pert_flatten.reshape(N_area, num_samples, 1, -1)
             else:

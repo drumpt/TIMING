@@ -66,6 +66,7 @@ class Mask:
     def fit(
         self,
         X,
+        mask,
         f,
         loss_function,
         target=None,
@@ -106,6 +107,7 @@ class Mask:
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
+        self.mask = mask
         self.n_epoch = n_epoch
         self.T, self.N_features = X.shape
         self.loss_function = loss_function
@@ -133,7 +135,7 @@ class Mask:
                 X_pert = self.perturbation.apply(X=X, mask_tensor=1 - mask_tensor_new)
             else:
                 X_pert = self.perturbation.apply(X=X, mask_tensor=mask_tensor_new)
-            Y_pert = f(X_pert)
+            Y_pert = f(X_pert, mask)
             # Evaluate the overall loss (error [L_e] + size regulation [L_a] + time variation regulation [L_c])
             error = loss_function(Y_pert, self.Y_target)
             mask_tensor_sorted = mask_tensor_new.reshape(self.T * self.N_features).sort()[0]
@@ -306,7 +308,7 @@ class Mask:
             X_pert = self.perturbation.apply(X=self.X, mask_tensor=1 - self.mask_tensor)
         else:
             X_pert = self.perturbation.apply(X=self.X, mask_tensor=self.mask_tensor)
-        Y_pert = self.f(X_pert)
+        Y_pert = self.f(X_pert, self.mask)
         if self.task == "classification":
             Y_pert = torch.log(Softmax(dim=1)(Y_pert))
         return self.loss_function(Y_pert, self.Y_target)
@@ -317,7 +319,7 @@ class Mask:
             X_pert = self.perturbation.apply_multiple(X=self.X, mask_tensor=1 - self.mask_tensor)
         else:
             X_pert = self.perturbation.apply_multiple(X=self.X, mask_tensor=self.mask_tensor)
-        Y_pert = self.f(X_pert) # (num_sample, T, 2)
+        Y_pert = self.f(X_pert, self.mask) # (num_sample, T, 2)
         if self.task == "classification":
             Y_pert = torch.log(Softmax(dim=2)(Y_pert))
         return self.loss_function(Y_pert.unsqueeze(0), self.Y_target.unsqueeze(0))

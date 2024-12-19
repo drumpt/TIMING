@@ -246,10 +246,10 @@ class ModelTrainer:
         self.model.to(self.device)
         outputs = []
 
-        for x in data:
-            x = x[0]
-            x = x.to(self.device)
-            output = self.model(x, return_all=return_all)
+        for batch in data:
+            input = batch[0].to(self.device)
+            mask = batch[2].to(self.device)
+            output = self.model(input, mask, return_all=return_all)
             if with_activation:
                 output = self.model.activation(output)
             output = output.detach().cpu().numpy()

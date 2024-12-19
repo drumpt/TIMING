@@ -27,6 +27,7 @@ from winit.explainer.explainers import (
 from winit.explainer.fitexplainers import FITExplainer
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.explainer.winitexplainers import WinITExplainer
+from winit.explainer.winitsetexplainers import WinITSetExplainer
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
 from winit.utils import aggregate_scores
@@ -135,7 +136,9 @@ class ExplanationRunner:
         """
         if self.model_trainers is None:
             raise RuntimeError("Initialize the model first.")
-        self.model_trainers.train_models(num_epochs, lr, weight_decay, use_all_times=use_all_times)
+        self.model_trainers.train_models(
+            num_epochs, lr, weight_decay, use_all_times=use_all_times
+        )
         self.model_trainers.load_model()
         self._get_test_results(use_all_times)
 
@@ -156,9 +159,13 @@ class ExplanationRunner:
         test_results = self.model_trainers.get_test_results(use_all_times)
         test_accs = [round(v.accuracy, 6) for v in test_results.values()]
         test_aucs = [round(v.auc, 6) for v in test_results.values()]
-        self.log.info(f"Average Accuracy = {np.mean(test_accs):.4f}\u00b1{np.std(test_accs):.4f}")
+        self.log.info(
+            f"Average Accuracy = {np.mean(test_accs):.4f}\u00b1{np.std(test_accs):.4f}"
+        )
         self.log.info(f"Model Accuracy on Tests = {test_accs}.")
-        self.log.info(f"Average AUC = {np.mean(test_aucs):.4f}\u00b1{np.std(test_aucs):.4f}")
+        self.log.info(
+            f"Average AUC = {np.mean(test_aucs):.4f}\u00b1{np.std(test_aucs):.4f}"
+        )
         self.log.info(f"Model AUC on Tests = {test_aucs}.")
 
     def run_inference(
@@ -229,7 +236,9 @@ class ExplanationRunner:
         """
         if explainer_name == "winit":
             train_loaders = (
-                self.dataset.train_loaders if explainer_dict.get("usedatadist") is True else None
+                self.dataset.train_loaders
+                if explainer_dict.get("usedatadist") is True
+                else None
             )
             self.explainers = {}
             kwargs = explainer_dict.copy()
@@ -238,6 +247,28 @@ class ExplanationRunner:
             for cv in self.dataset.cv_to_use():
                 train_loader = train_loaders[cv] if train_loaders is not None else None
                 self.explainers[cv] = WinITExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=train_loader,
+                    args=args,
+                    **kwargs,
+                )
+
+        elif explainer_name == "winitset":
+            train_loaders = (
+                self.dataset.train_loaders
+                if explainer_dict.get("usedatadist") is True
+                else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = WinITSetExplainer(
                     self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
@@ -270,34 +301,39 @@ class ExplanationRunner:
 
         elif explainer_name == "fo":
             self.explainers = {
-                cv: FOExplainer(self.device, **explainer_dict) for cv in self.dataset.cv_to_use()
+                cv: FOExplainer(self.device, **explainer_dict)
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "afo":
             self.explainers = {
-                cv: AFOExplainer(self.device, self.dataset.train_loaders[cv], **explainer_dict)
+                cv: AFOExplainer(
+                    self.device, self.dataset.train_loaders[cv], **explainer_dict
+                )
                 for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap":
             self.explainers = {
-                cv: GradientShapExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: GradientShapExplainer(self.device)
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "mock":
-            self.explainers = {
-                cv: MockExplainer() for cv in self.dataset.cv_to_use()
-            }
+            self.explainers = {cv: MockExplainer() for cv in self.dataset.cv_to_use()}
 
         elif explainer_name == "dynamask":
             self.explainers = {
-                cv: DynamaskExplainer(self.device, **explainer_dict) for cv in self.dataset.cv_to_use()
+                cv: DynamaskExplainer(self.device, **explainer_dict)
+                for cv in self.dataset.cv_to_use()
             }
 
         else:
             raise ValueError("%s explainer not defined!" % explainer_name)
 
-    def train_generators(self, num_epochs: int) -> Dict[int, GeneratorTrainingResults] | None:
+    def train_generators(
+        self, num_epochs: int
+    ) -> Dict[int, GeneratorTrainingResults] | None:
         """
         Train the generator if applicable. Test the generator and save the generator
         training results.
@@ -310,7 +346,9 @@ class ExplanationRunner:
             The generator training results. None if the explainer has no generator to train.
         """
         if self.explainers is None:
-            raise RuntimeError("explainer is not initialized. Call get_explainer to initialize.")
+            raise RuntimeError(
+                "explainer is not initialized. Call get_explainer to initialize."
+            )
 
         results = {}
         generator_array_path = self._get_generator_array_path()
@@ -318,7 +356,9 @@ class ExplanationRunner:
         for cv in self.dataset.cv_to_use():
             self.log.info(f"Training generator for cv={cv}")
             gen_result = self.explainers[cv].train_generators(
-                self.dataset.train_loaders[cv], self.dataset.valid_loaders[cv], num_epochs
+                self.dataset.train_loaders[cv],
+                self.dataset.valid_loaders[cv],
+                num_epochs,
             )
             self.explainers[cv].test_generators(self.dataset.test_loader)
             if gen_result is not None:
@@ -344,7 +384,9 @@ class ExplanationRunner:
         Load the generator and print the test results.
         """
         if self.explainers is None:
-            raise RuntimeError("explainer is not initialized. Call get_explainer to initialize.")
+            raise RuntimeError(
+                "explainer is not initialized. Call get_explainer to initialize."
+            )
 
         for cv in self.dataset.cv_to_use():
             self.explainers[cv].load_generators()
@@ -368,7 +410,9 @@ class ExplanationRunner:
                 Set the model to eval mode. If False, leave the model as is.
         """
         if self.explainers is None:
-            raise RuntimeError("explainer is not initialized. Call get_explainer to initialize.")
+            raise RuntimeError(
+                "explainer is not initialized. Call get_explainer to initialize."
+            )
 
         for cv in self.dataset.cv_to_use():
             self.explainers[cv].set_model(
@@ -380,11 +424,15 @@ class ExplanationRunner:
         Run attribution method for the explainer on the test set.
         """
         if self.explainers is None:
-            raise RuntimeError("explainer is not initialized. Call get_explainer to initialize.")
+            raise RuntimeError(
+                "explainer is not initialized. Call get_explainer to initialize."
+            )
 
         self.importances = self._run_attributes_recursive(self.dataset.test_loader)
 
-    def _run_attributes_recursive(self, dataloader: DataLoader) -> Dict[int, np.ndarray]:
+    def _run_attributes_recursive(
+        self, dataloader: DataLoader
+    ) -> Dict[int, np.ndarray]:
         """
         A convenient method to run attributes when we adjust the batch size if cuda is out of
         memory
@@ -428,6 +476,8 @@ class ExplanationRunner:
             importance_scores = []
             for x, _, mask in dataloader:
                 x = x.to(self.device)
+                mask = mask.to(self.device)
+                print(f"{mask.shape=}")
                 score = self.explainers[cv].attribute(x, mask)
                 importance_scores.append(score)
 
@@ -456,7 +506,9 @@ class ExplanationRunner:
         """
         importances = {}
         for cv in self.dataset.cv_to_use():
-            importance_file_name = self._get_importance_path() / self._get_importance_file_name(cv)
+            importance_file_name = (
+                self._get_importance_path() / self._get_importance_file_name(cv)
+            )
             with importance_file_name.open("rb") as f:
                 importance_scores = pkl.load(f)
             importances[cv] = importance_scores
@@ -475,7 +527,9 @@ class ExplanationRunner:
             A DataFrame of shape (num_cv * aggregate_method, num_metric=6).
         """
         if not isinstance(self.dataset, SimulatedData):
-            raise ValueError("non simulated dataset does not have simulated importances.")
+            raise ValueError(
+                "non simulated dataset does not have simulated importances."
+            )
 
         if self.importances is None:
             raise ValueError(
@@ -516,7 +570,9 @@ class ExplanationRunner:
         orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
         x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset)])).cpu().numpy()
         y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset)])).cpu().numpy()
-        mask_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
+        mask_test = (
+            torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
+        )
         # nan_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
 
         dfs = {}
@@ -526,7 +582,10 @@ class ExplanationRunner:
             new_xs = masker.mask(x_test, mask_test, self.importances)
             new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
             self._plot_boxes(
-                num_to_plot=20, aggregate_methods=[masker.aggregate_method], x_other=new_xs, mask_name=masker.get_name()
+                num_to_plot=20,
+                aggregate_methods=[masker.aggregate_method],
+                x_other=new_xs,
+                mask_name=masker.get_name(),
             )
             new_preds = self.run_inference(new_xs, return_all=False)
             df = pd.DataFrame()
@@ -550,7 +609,9 @@ class ExplanationRunner:
 
                 avg_pred_diff = np.abs(orig_pred - new_pred).mean().item()
                 auc_drop = original_auc - modified_auc
-                avg_mask_count = (masker.all_masked_count[cv].sum() / len(x_test)).item()
+                avg_mask_count = (
+                    masker.all_masked_count[cv].sum() / len(x_test)
+                ).item()
 
                 mask_array_path = self._get_mask_array_path()
                 mask_array_path.mkdir(parents=True, exist_ok=True)
@@ -620,7 +681,10 @@ class ExplanationRunner:
             plotter.plot_x_pred(x_other, inference_other, prefix=prefix)
 
     def _evaluate_importance_with_gt(
-        self, ground_truth_importance: np.ndarray, absolutize: bool, aggregate_methods: List[str]
+        self,
+        ground_truth_importance: np.ndarray,
+        absolutize: bool,
+        aggregate_methods: List[str],
     ):
         ground_truth_importance = ground_truth_importance[:, :, 1:].reshape(
             len(ground_truth_importance), -1
@@ -629,8 +693,12 @@ class ExplanationRunner:
         for aggregate_method in aggregate_methods:
             df = pd.DataFrame()
             for cv, importance_unaggregated in self.importances.items():
-                importance_scores = aggregate_scores(importance_unaggregated, aggregate_method)
-                importance_scores = importance_scores[:, :, 1:].reshape(len(importance_scores), -1)
+                importance_scores = aggregate_scores(
+                    importance_unaggregated, aggregate_method
+                )
+                importance_scores = importance_scores[:, :, 1:].reshape(
+                    len(importance_scores), -1
+                )
 
                 # compute mean ranks
                 ranks = rankdata(-importance_scores, axis=1)
@@ -656,7 +724,9 @@ class ExplanationRunner:
                 prec_score, rec_score, thresholds = metrics.precision_recall_curve(
                     gt_score, explainer_score
                 )
-                auprc_score = metrics.auc(rec_score, prec_score) if rec_score.shape[0] > 1 else -1
+                auprc_score = (
+                    metrics.auc(rec_score, prec_score) if rec_score.shape[0] > 1 else -1
+                )
 
                 pos_ratio = ground_truth_importance.sum() / len(ground_truth_importance)
                 result = {
