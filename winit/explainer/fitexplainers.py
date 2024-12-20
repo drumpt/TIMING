@@ -53,12 +53,12 @@ class FITExplainer(BaseExplainer):
         if len(kwargs) > 0:
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
-    def _model_predict(self, x):
+    def _model_predict(self, x, mask=None, timesteps=None):
         """
         Run predict on base model. If the output is binary, i.e. num_class = 1, we will make it
         into a probability distribution by append (p, 1-p) to it.
         """
-        p = self.base_model.predict(x, return_all=False)
+        p = self.base_model.predict(x, mask, timesteps, return_all=False)
         if self.base_model.num_states == 1:
             # Create a 'probability distribution' (p, 1 - p)
             prob_distribution = torch.cat((p, 1 - p), dim=1)
@@ -93,17 +93,30 @@ class FITExplainer(BaseExplainer):
         self._init_generators()
         self.generator.load_generator()
 
-    def attribute(self, x):
+    def attribute(self, x, mask=None):
         self.generator.eval()
         self.generator.to(self.device)
 
         x = x.to(self.device)
-        _, n_features, t_len = x.shape
-        score = np.zeros(list(x.shape))
+        batch_size, n_features, t_len = x.shape
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
 
+        score = np.zeros(list(x.shape))
         for t in range(1, t_len):
-            p_y_t = self._model_predict(x[:, :, : t + 1])
-            p_tm1 = self._model_predict(x[:, :, 0:t])
+            p_y_t = self._model_predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                timesteps[:, : t + 1],
+            )
+            p_tm1 = self._model_predict(
+                x[:, :, 0:t],
+                mask[:, :, :t],
+                timesteps[:, :t],
+            )
 
             for i in range(n_features):
                 mu_z, std_z = self.generator.get_z_mu_std(x[:, :, :t])
@@ -115,7 +128,19 @@ class FITExplainer(BaseExplainer):
                 x_hat = x[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
                 x_hat[:, :, :, t] = x_hat_t[:, :, :, 0]
                 x_hat = x_hat.reshape(-1, n_features, t + 1)
-                y_hat_t = self._model_predict(x_hat)
+
+                mask_hat = (
+                    mask[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
+                )
+                mask_hat[:, :, :, t] = 0  # Values exist
+                mask_hat = mask_hat.reshape(-1, n_features, t + 1)
+
+                time_hat = (
+                    timesteps[:, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1)
+                )
+                time_hat = time_hat.reshape(-1, t + 1)
+
+                y_hat_t = self._model_predict(x_hat, mask_hat, time_hat)
                 y_hat_t = y_hat_t.reshape(self.n_samples, -1, y_hat_t.shape[-1])
 
                 first_term = torch.sum(

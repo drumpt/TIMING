@@ -149,8 +149,8 @@ class DeepLiftExplainer(BaseExplainer):
             self.base_model.num_states == 1
         ), "TODO: Implement retrospective for > 1 class"
         score = self.explainer.attribute(
-            (x, mask), baselines=(x * 0, mask), additional_forward_args=(False)
-        )[0]
+            x, baselines=(x * 0), additional_forward_args=(mask, None, False)
+        )
         score = abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -184,8 +184,8 @@ class IGExplainer(BaseExplainer):
 
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
         score = self.explainer.attribute(
-            (x, mask), baselines=(x * 0, mask), additional_forward_args=(False)
-        )[0]
+            x, baselines=(x * 0), additional_forward_args=(mask, None, False)
+        )
         score = np.abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -220,12 +220,12 @@ class GradientShapExplainer(BaseExplainer):
         x = x.to(self.device)
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
         score = self.explainer.attribute(
-            (x, mask),
+            x,
             n_samples=50,
             stdevs=0.0001,
-            baselines=(torch.cat([x * 0, x * 1]), torch.cat([mask, mask])),
-            additional_forward_args=(False),
-        )[0]
+            baselines=(torch.cat([x * 0, x * 1])),
+            additional_forward_args=(mask, None, False),
+        )
         score = abs(score.cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -253,14 +253,20 @@ class FOExplainer(BaseExplainer):
         self.base_model.zero_grad()
 
         x = x.to(self.device)
-        _, n_features, t_len = x.shape
+        batch_size, n_features, t_len = x.shape
         score = np.zeros(x.shape)
 
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
         for t in range(1, t_len):
             p_y_t = self.base_model.predict(
                 x[:, :, : t + 1],
                 mask[:, :, : t + 1],
-                return_all=False
+                timesteps[:, : t + 1],
+                return_all=False,
             )
             for i in range(n_features):
                 x_hat = x[:, :, 0 : t + 1].clone()
@@ -271,8 +277,9 @@ class FOExplainer(BaseExplainer):
                     )
                     y_hat_t = self.base_model.predict(
                         x_hat,
-                        mask[:, :, 0 : t + 1],
-                        return_all=False
+                        mask[:, :, : t + 1],
+                        timesteps[:, : t + 1],
+                        return_all=False,
                     )
                     kl = torch.abs(y_hat_t - p_y_t)
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
@@ -303,18 +310,24 @@ class AFOExplainer(BaseExplainer):
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
     def attribute(self, x, mask):
-        x = x.to(self.device)
-        _, n_features, t_len = x.shape
-        score = np.zeros(x.shape)
-
         self.base_model.eval()
         self.base_model.zero_grad()
 
+        x = x.to(self.device)
+        batch_size, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
         for t in range(1, t_len):
             p_y_t = self.base_model.predict(
                 x[:, :, : t + 1],
                 mask[:, :, : t + 1],
-                return_all=False
+                timesteps[:, : t + 1],
+                return_all=False,
             )
             for i in range(n_features):
                 feature_dist = np.array(self.data_distribution[:, i, :]).reshape(-1)
@@ -326,8 +339,9 @@ class AFOExplainer(BaseExplainer):
                     ).to(self.device)
                     y_hat_t = self.base_model.predict(
                         x_hat,
-                        mask[:, :, 0 : t + 1],
-                        return_all=False
+                        mask[:, :, : t + 1],
+                        timesteps[:, : t + 1],
+                        return_all=False,
                     )
                     kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
                     kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))

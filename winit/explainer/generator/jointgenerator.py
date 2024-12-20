@@ -12,7 +12,10 @@ from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.distributions import constraints
 
-from winit.explainer.generator.generator import BaseFeatureGenerator, GeneratorTrainingResults
+from winit.explainer.generator.generator import (
+    BaseFeatureGenerator,
+    GeneratorTrainingResults,
+)
 
 
 class JointFeatureGenerator(BaseFeatureGenerator):
@@ -56,7 +59,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
         self.output_size = self.prediction_size * self.feature_size
         self.data = data
         self.cov_noise = (
-            torch.eye(self.output_size, requires_grad=False).unsqueeze(0).to(self.device)
+            torch.eye(self.output_size, requires_grad=False)
+            .unsqueeze(0)
+            .to(self.device)
         )
 
         # Generates the parameters of the distribution
@@ -117,7 +122,10 @@ class JointFeatureGenerator(BaseFeatureGenerator):
         Z = mu + std * torch.randn_like(mu).to(self.device)
         # Generate the distribution P(X|H,Z)
         mean = self.mean_generator(Z)
-        cov_noise = torch.eye(self.output_size).unsqueeze(0).repeat(len(Z), 1, 1) * cov_noise_level
+        cov_noise = (
+            torch.eye(self.output_size).unsqueeze(0).repeat(len(Z), 1, 1)
+            * cov_noise_level
+        )
         cov_noise = cov_noise.to(self.device)
         A = self.cov_generator(Z).view(-1, self.output_size, self.output_size)
         covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + cov_noise
@@ -128,19 +136,27 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                 break
             else:
                 error_index = torch.where(~valid)[0]
-                covariance[error_index, :, :] = covariance[error_index, :, :] + self.cov_noise * cov_noise_level
+                covariance[error_index, :, :] = (
+                    covariance[error_index, :, :] + self.cov_noise * cov_noise_level
+                )
                 self.log.warning(
                     f"Covariance matrix is not positive definite at {len(error_index)} indices."
                 )
-                self.log.warning(f"Adding {cov_noise_level}I to the matrix at those indices")
+                self.log.warning(
+                    f"Adding {cov_noise_level}I to the matrix at those indices"
+                )
                 count_loop += 1
                 self.log.info(f"count_loop={count_loop}")
                 if count_loop > 20:
                     covariance[error_index, :, :] = self.cov_noise
-                    self.log.warning(f"Attempt to add more noise failed. Setting that covariance to I")
+                    self.log.warning(
+                        f"Attempt to add more noise failed. Setting that covariance to I"
+                    )
                     valid_loop = constraints.positive_definite.check(covariance)
-                    np.save(f"debug.array.{error_index}.npy",
-                            covariance[error_index, :, :].detach().cpu().numpy())
+                    np.save(
+                        f"debug.array.{error_index}.npy",
+                        covariance[error_index, :, :].detach().cpu().numpy(),
+                    )
                     if valid_loop.all():
                         break
                     else:
@@ -149,7 +165,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
 
         return mean, covariance
 
-    def likelihood_distribution_multisample(self, mu, std, n_samples, cov_noise_level=1e-4):
+    def likelihood_distribution_multisample(
+        self, mu, std, n_samples, cov_noise_level=1e-4
+    ):
         """
         Return the likelihood distribution of the output given the latent distribution Z. We
         sample from the latent distribution, run the "decoder network" to obtain the mean and
@@ -182,7 +200,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
         mean = self.mean_generator(Z)
 
         A = self.cov_generator(Z).view(-1, self.output_size, self.output_size)
-        covariance = torch.bmm(A, torch.transpose(A, 1, 2)) + self.cov_noise * cov_noise_level
+        covariance = (
+            torch.bmm(A, torch.transpose(A, 1, 2)) + self.cov_noise * cov_noise_level
+        )
         count_loop = 0
         while True:
             valid = constraints.positive_definite.check(covariance)
@@ -202,7 +222,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                 count_loop += 1
                 if count_loop > 20:
                     covariance[error_index, :, :] = self.cov_noise
-                    self.log.warning(f"attempt to add more noise failed. Setting covariance to I")
+                    self.log.warning(
+                        f"attempt to add more noise failed. Setting covariance to I"
+                    )
 
         return mean, covariance
 
@@ -267,7 +289,10 @@ class JointFeatureGenerator(BaseFeatureGenerator):
         if len(current.shape) == 2:
             if current.shape[1] == self.feature_size:
                 current = current[:, :, None]
-            elif current.shape[0] == self.feature_size and current.shape[1] == self.prediction_size:
+            elif (
+                current.shape[0] == self.feature_size
+                and current.shape[1] == self.prediction_size
+            ):
                 current = current[None, :, :]
             else:
                 raise RuntimeError("current shape is incompatible!")
@@ -281,28 +306,39 @@ class JointFeatureGenerator(BaseFeatureGenerator):
         )  # P(X_t|X_0:t-1)
         old_sig_inds = sig_inds
         sig_inds = [
-            list(range(sig_ind * pred_size, (sig_ind + 1) * pred_size)) for sig_ind in sig_inds
+            list(range(sig_ind * pred_size, (sig_ind + 1) * pred_size))
+            for sig_ind in sig_inds
         ]
         sig_inds = list(itertools.chain.from_iterable(sig_inds))
         sig_inds_comp = list(set(range(current.shape[1])) - set(sig_inds))
 
-        full_sample = current.unsqueeze(0).repeat(n_samples, 1, 1).reshape(-1, current.shape[-1])
+        full_sample = (
+            current.unsqueeze(0).repeat(n_samples, 1, 1).reshape(-1, current.shape[-1])
+        )
 
         ind_len = len(sig_inds)
         ind_len_not = len(sig_inds_comp)
         x_ind = full_sample[:, sig_inds].view(-1, ind_len)
         mean_1 = mean[:, sig_inds_comp].view(-1, ind_len_not)
-        cov_1_2 = covariance[:, sig_inds_comp, :][:, :, sig_inds].view(-1, ind_len_not, ind_len)
+        cov_1_2 = covariance[:, sig_inds_comp, :][:, :, sig_inds].view(
+            -1, ind_len_not, ind_len
+        )
         cov_2_2 = covariance[:, sig_inds, :][:, :, sig_inds].view(-1, ind_len, ind_len)
         cov_1_1 = covariance[:, sig_inds_comp, :][:, :, sig_inds_comp].view(
             -1, ind_len_not, ind_len_not
         )
-        intermediate, _ = torch.solve(cov_1_2.transpose(1, 2), cov_2_2)
-        intermediate = intermediate.transpose(1, 2)
+        # intermediate, _ = torch.solve(cov_1_2.transpose(1, 2), cov_2_2)
+        # intermediate = intermediate.transpose(1, 2)
+        intermediate = torch.linalg.solve(
+            cov_2_2, 
+            cov_1_2.transpose(1, 2)
+        ).transpose(1, 2)
         mean_cond = mean_1 + torch.bmm(
             (intermediate), (x_ind - mean[:, sig_inds]).view(-1, ind_len, 1)
         ).squeeze(-1)
-        covariance_cond = cov_1_1 - torch.bmm(intermediate, torch.transpose(cov_1_2, 2, 1))
+        covariance_cond = cov_1_1 - torch.bmm(
+            intermediate, torch.transpose(cov_1_2, 2, 1)
+        )
 
         # covariance_cond may not be positive definite due to numerical instability.
         error_indexes = []
@@ -313,10 +349,12 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                 if not valid.all():
                     error_index = torch.where(~valid)[0].detach().cpu().numpy()
                     error_indexes.extend(error_index)
-                    covariance_cond[error_index, :, :] = torch.eye(covariance_cond.shape[1])[
-                        None, :, :
-                    ].to(self.device)
-                likelihood = MultivariateNormal(loc=mean_cond, covariance_matrix=covariance_cond)
+                    covariance_cond[error_index, :, :] = torch.eye(
+                        covariance_cond.shape[1]
+                    )[None, :, :].to(self.device)
+                likelihood = MultivariateNormal(
+                    loc=mean_cond, covariance_matrix=covariance_cond
+                )
                 sample = likelihood.rsample()
                 full_sample[:, sig_inds_comp] = sample
                 full_sample = full_sample.reshape(n_samples, *orig_shape)
@@ -326,7 +364,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                 # Very rarely, covariance_cond matrix will be singular causing the above to fail
                 error_index = int(str(e).split(" ")[3].split(":")[0])
                 error_indexes.append(error_index)
-                covariance_cond[error_index] = torch.eye(covariance_cond.shape[1]).to(self.device)
+                covariance_cond[error_index] = torch.eye(covariance_cond.shape[1]).to(
+                    self.device
+                )
 
         if len(error_indexes) > 0:
             # So, we will carry forward in this case
@@ -334,11 +374,13 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                 original_sample_index = error_index // orig_shape[0]
                 original_batch_index = error_index % orig_shape[0]
                 # full_sample.shape = (n_samples, batch_size, feature_size, time)
-                full_sample[original_sample_index, original_batch_index, old_sig_inds, :] = past[
-                    original_batch_index, old_sig_inds, -1:
-                ]
+                full_sample[
+                    original_sample_index, original_batch_index, old_sig_inds, :
+                ] = past[original_batch_index, old_sig_inds, -1:]
 
-            self.log.warning(f"WARNING: Carrying forward instead on {len(error_indexes)} index.")
+            self.log.warning(
+                f"WARNING: Carrying forward instead on {len(error_indexes)} index."
+            )
             full_sample = full_sample.view(n_samples, *orig_shape)
 
         return full_sample, mean[:, sig_inds_comp].reshape(n_samples, -1, ind_len_not)
@@ -367,7 +409,8 @@ class JointFeatureGenerator(BaseFeatureGenerator):
             self.eval()
         epoch_loss = 0
 
-        for i, (signals, _) in enumerate(dataloader):
+        for i, batch in enumerate(dataloader):
+            signals = batch[0]
             if num == 1:
                 timepoints = [signals.shape[2] - self.prediction_size]
             else:
@@ -435,7 +478,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
 
         parameters = self.parameters()
         optimizer = torch.optim.Adam(
-            parameters, lr=default_params["lr"], weight_decay=default_params["weight_decay"]
+            parameters,
+            lr=default_params["lr"],
+            weight_decay=default_params["weight_decay"],
         )
 
         best_loss = 1000000
@@ -447,8 +492,12 @@ class JointFeatureGenerator(BaseFeatureGenerator):
 
         for epoch in range(num_epochs + 1):
             self._run_one_epoch(train_loader, 3, True, optimizer, mse_loss=False)
-            train_loss = self._run_one_epoch(train_loader, 10, False, None, mse_loss=False)
-            valid_loss = self._run_one_epoch(valid_loader, 10, False, None, mse_loss=False)
+            train_loss = self._run_one_epoch(
+                train_loader, 10, False, None, mse_loss=False
+            )
+            valid_loss = self._run_one_epoch(
+                valid_loader, 10, False, None, mse_loss=False
+            )
             train_loss_trends[0, epoch] = train_loss
             valid_loss_trends[0, epoch] = valid_loss
 
@@ -466,7 +515,9 @@ class JointFeatureGenerator(BaseFeatureGenerator):
                         self.log.info(f"save ckpt:in epoch {epoch}")
         best_epochs[0] = best_epoch
 
-        self.log.info(f"Joint generator test loss = {best_loss:.6f}   Time elapsed: {time() - tic}")
+        self.log.info(
+            f"Joint generator test loss = {best_loss:.6f}   Time elapsed: {time() - tic}"
+        )
         return GeneratorTrainingResults(
             self.get_name(), train_loss_trends, valid_loss_trends, best_epochs
         )

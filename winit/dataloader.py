@@ -221,14 +221,7 @@ class Mimic(WinITDataset):
         train_mask = np.array([datum[3] for datum in data[0:n_train]])
         test_mask = np.array([datum[3] for datum in data[n_train:]])
         
-        # print(f"{train_mask=}")
-        # print(f"{train_mask.shape=}")
-
         train_data, test_data = self.normalize(train_data, test_data, feature_size)
-
-        # print(f"{train_data.shape=}")
-        # print(f"{test_data.shape=}")
-
         self._get_loaders(train_data, train_label, test_data, test_label, train_mask, test_mask)
 
     @staticmethod

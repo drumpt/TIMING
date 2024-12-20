@@ -17,7 +17,7 @@ from winit.explainer.generator.generator import (
 from winit.explainer.generator.jointgenerator import JointFeatureGenerator
 
 
-class WinITSetExplainer(BaseExplainer):
+class WinITSetAllExplainer(BaseExplainer):
     """
     The explainer for our method WinIT
     """
@@ -90,7 +90,7 @@ class WinITSetExplainer(BaseExplainer):
             self.data_distribution = None
         self.rng = np.random.default_rng(random_state)
 
-        self.log = logging.getLogger(WinITSetExplainer.__name__)
+        self.log = logging.getLogger(WinITSetAllExplainer.__name__)
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
@@ -142,9 +142,9 @@ class WinITSetExplainer(BaseExplainer):
             for time_past in range(num_timesteps):
                 # Generate counterfactuals
                 counterfactuals = torch.zeros(
-                    num_features,  # feature dimension
                     self.num_samples,  # number of Monte-Carlo samples
                     batch_size,  # batch size
+                    num_features,  # feature dimension
                     num_timesteps - time_past,  # time forward
                     device=x.device,  # same device as input
                 )
@@ -157,12 +157,11 @@ class WinITSetExplainer(BaseExplainer):
                     )  # (ns, bs, f, time)
 
                     # Replace values with counterfactuals
-                    x_hat_in[:, :, f, time_past:num_timesteps] = counterfactuals[
-                        f, :, :, :
-                    ]
+                    x_hat_in[:, :, :, time_past:num_timesteps] = counterfactuals
+                    assert torch.count_nonzero(x_hat_in[:, :, :, time_past:num_timesteps]) == 0
                     
                     mask_hat_in = mask.unsqueeze(0).repeat(self.num_samples, 1, 1, 1)
-                    mask_hat_in[:, :, f, time_past:num_timesteps] = 1  # Doesn't exist
+                    mask_hat_in[:, :, :, time_past:num_timesteps] = 1  # Doesn't exist
                     time_hat_in = timesteps.unsqueeze(0).repeat(self.num_samples, 1, 1)
 
                     # Get predictions for counterfactuals

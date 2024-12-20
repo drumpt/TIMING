@@ -119,7 +119,9 @@ class ModelTrainer:
                 device=self.device,
             )
         else:
-            raise ValueError(f"Invalid model type ({model_type}). Must be ('GRU', 'LSTM', 'CONV')")
+            raise ValueError(
+                f"Invalid model type ({model_type}). Must be ('GRU', 'LSTM', 'CONV')"
+            )
 
         self.verbose_eval = verbose_eval
         self.early_stopping = early_stopping
@@ -158,7 +160,9 @@ class ModelTrainer:
                Use all the timestep for training. Otherwise, only use the last timestep.
 
         """
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.Adam(
+            self.model.parameters(), lr=lr, weight_decay=weight_decay
+        )
         train_results_trend = []
         valid_results_trend = []
 
@@ -166,10 +170,16 @@ class ModelTrainer:
         self.model.to(self.device)
         for epoch in range(num_epochs):
             train_results = self._run_one_epoch(
-                train_loader, run_train=True, optimizer=optimizer, use_all_times=use_all_times
+                train_loader,
+                run_train=True,
+                optimizer=optimizer,
+                use_all_times=use_all_times,
             )
             valid_results = self._run_one_epoch(
-                valid_loader, run_train=False, optimizer=None, use_all_times=use_all_times
+                valid_loader,
+                run_train=False,
+                optimizer=None,
+                use_all_times=use_all_times,
             )
             train_results_trend.append(train_results)
             valid_results_trend.append(valid_results)
@@ -202,7 +212,9 @@ class ModelTrainer:
         Load the model for the file.
         """
         self.model.load_state_dict(
-            torch.load(str(self.model_file_name), map_location=torch.device(self.device))
+            torch.load(
+                str(self.model_file_name), map_location=torch.device(self.device)
+            )
         )
 
     def get_test_results(self, test_loader, use_all_times: bool) -> EpochResult:
@@ -298,8 +310,14 @@ class ModelTrainer:
         all_labels, all_probs = [], []
         for batch in dataloader:
             signals = torch.Tensor(batch[0].float()).to(self.device)
-            labels = torch.Tensor(batch[1].long() if multiclass else batch[1].float()).to(self.device)
-            masks = torch.Tensor(batch[2].float()).to(self.device) if len(batch) > 2 else None
+            labels = torch.Tensor(
+                batch[1].long() if multiclass else batch[1].float()
+            ).to(self.device)
+            masks = (
+                torch.Tensor(batch[2].float()).to(self.device)
+                if len(batch) > 2
+                else None
+            )
 
             if run_train:
                 optimizer.zero_grad()
@@ -339,12 +357,16 @@ class ModelTrainer:
         recall = (
             0
             if multiclass
-            else recall_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+            else recall_score(
+                all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0
+            )
         )
         precision = (
             0
             if multiclass
-            else precision_score(all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0)
+            else precision_score(
+                all_labels.reshape(-1), all_preds.reshape(-1), zero_division=0
+            )
         )
         accuracy = 0 if multiclass else float(np.mean(all_labels == all_preds))
         return EpochResult(
@@ -480,6 +502,7 @@ class ModelTrainerWithCv:
     def run_inference(
         self,
         data: torch.Tensor | Dict[int, torch.Tensor] | None,
+        mask: torch.Tensor | Dict[int, torch.Tensor] | None,
         with_activation=True,
         return_all=True,
     ) -> Dict[int, np.ndarray]:
@@ -508,9 +531,16 @@ class ModelTrainerWithCv:
             return_dict = {}
             for cv, model_trainer in self.model_trainers.items():
                 data_cv = data[cv]
+                fake_label_cv = torch.zeros_like(data_cv)
+                mask_cv = mask[cv]
                 if isinstance(data_cv, torch.Tensor):
-                    data_cv = DataLoader(TensorDataset(data_cv), batch_size=self.dataset.testbs)
-                return_dict[cv] = model_trainer.run_inference(data_cv, with_activation, return_all)
+                    data_cv = DataLoader(
+                        TensorDataset(data_cv, fake_label_cv, mask_cv), # placeholder for labels
+                        batch_size=self.dataset.testbs,
+                    )
+                return_dict[cv] = model_trainer.run_inference(
+                    data_cv, with_activation, return_all
+                )
             return return_dict
 
         if data is None:

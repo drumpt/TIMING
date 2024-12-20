@@ -1,7 +1,3 @@
-<p align="center">
-<a href="https://layer6.ai/"><img src="https://github.com/layer6ai-labs/WinIT/blob/main/logos/logobox.jpg" width="180"></a>
-</p>
-
 ## ICLR'23 "Temporal Dependencies in Feature Importance for Time Series Prediction"
 
 Authors: KK Leung, Clayton Rooke, Jonathan Smith, Saba Zuberi, [Maksims Volkovs](http://www.cs.toronto.edu/~mvolkovs)  
