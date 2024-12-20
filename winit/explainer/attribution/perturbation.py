@@ -28,7 +28,9 @@ class Perturbation(ABC):
             mask_tensor: Tensor containing the mask coefficients.
         """
         if X is None or mask_tensor is None:
-            raise NameError("The mask_tensor should be fitted before or while calling the perturb method.")
+            raise NameError(
+                "The mask_tensor should be fitted before or while calling the perturb method."
+            )
 
     @abstractmethod
     def apply_multiple(self, X, mask_tensor):
@@ -45,12 +47,17 @@ class Perturbation(ABC):
             extremal_tensor: (N_area, T, N_feature) tensor containing the different masks.
         """
         if X is None or extremal_tensor is None:
-            raise NameError("The mask_tensor should be fitted before or while calling the perturb method.")
+            raise NameError(
+                "The mask_tensor should be fitted before or while calling the perturb method."
+            )
 
     @abstractmethod
     def apply_extremal_multiple(self, X, extremal_tensor: torch.Tensor):
         if X is None or extremal_tensor is None:
-            raise NameError("The mask_tensor should be fitted before or while calling the perturb method.")
+            raise NameError(
+                "The mask_tensor should be fitted before or while calling the perturb method."
+            )
+
 
 class FadeMovingAverage(Perturbation):
     """This class allows to create and apply 'fade to moving average' perturbations on inputs based on masks.
@@ -81,12 +88,13 @@ class FadeMovingAverage(Perturbation):
         super().apply(X=X, mask_tensor=mask_tensor)
         num_sample, T, num_features = X.shape
         # Compute the moving average for each feature and concatenate it to create a tensor with X's shape
-        moving_average = torch.mean(X, 1).reshape(num_sample, 1, num_features).to(self.device)
+        moving_average = (
+            torch.mean(X, 1).reshape(num_sample, 1, num_features).to(self.device)
+        )
         moving_average_tiled = moving_average.repeat(1, T, 1)
         # The perturbation is just an affine combination of the input and the previous tensor weighted by the mask
         X_pert = mask_tensor * X + (1 - mask_tensor) * moving_average_tiled
-        return X_pert # (num_sample, T, nfeat)
-
+        return X_pert  # (num_sample, T, nfeat)
 
     def apply_extremal(self, X, extremal_tensor: torch.Tensor):
         super().apply_extremal(X, extremal_tensor)
@@ -101,9 +109,13 @@ class FadeMovingAverage(Perturbation):
         N_area, num_samples, T, N_features = extremal_tensor.shape
         # X = (nm_sample, T, num_features)
         # Compute the moving average for each feature and concatenate it to create a tensor with X's shape
-        moving_average = torch.mean(X, dim=1).reshape(1, num_samples, 1, N_features).to(self.device)
+        moving_average = (
+            torch.mean(X, dim=1).reshape(1, num_samples, 1, N_features).to(self.device)
+        )
         # The perturbation is just an affine combination of the input and the previous tensor weighted by the mask
-        X_pert = extremal_tensor * X.unsqueeze(0) + (1 - extremal_tensor) * moving_average
+        X_pert = (
+            extremal_tensor * X.unsqueeze(0) + (1 - extremal_tensor) * moving_average
+        )
         # X_pert (N_area, num_samples, T, N_features)
         return X_pert
 
@@ -133,7 +145,9 @@ class GaussianBlur(Perturbation):
         # For each feature and each time, we compute the coefficients for the Gaussian perturbation
         T1_tensor = T_axis.unsqueeze(1).unsqueeze(2)
         T2_tensor = T_axis.unsqueeze(0).unsqueeze(2)
-        filter_coefs = torch.exp(torch.divide(-1.0 * (T1_tensor - T2_tensor) ** 2, 2.0 * (sigma_tensor ** 2)))
+        filter_coefs = torch.exp(
+            torch.divide(-1.0 * (T1_tensor - T2_tensor) ** 2, 2.0 * (sigma_tensor**2))
+        )
         filter_coefs = torch.divide(filter_coefs, torch.sum(filter_coefs, 0))
         # The perturbation is obtained by replacing each input by the linear combination weighted by Gaussian coefs
         X_pert = torch.einsum("sti,si->ti", filter_coefs, X)
@@ -147,12 +161,16 @@ class GaussianBlur(Perturbation):
         T_axis = torch.arange(1, T + 1, dtype=int, device=self.device)
         # Convert the mask into a tensor containing the width of each Gaussian perturbation
         sigma_tensor = self.sigma_max * ((1 + self.eps) - mask_tensor)
-        sigma_tensor = sigma_tensor.unsqueeze(1) # (num_sample, 1, T, nfeat)
+        sigma_tensor = sigma_tensor.unsqueeze(1)  # (num_sample, 1, T, nfeat)
         # For each feature and each time, we compute the coefficients for the Gaussian perturbation
-        T1_tensor = T_axis.reshape(1, T, 1, 1) # (1, T, 1, 1)
-        T2_tensor = T_axis.reshape(1, 1, T, 1) # (1, 1, T, 1)
-        filter_coefs = torch.exp(torch.divide(-1.0 * (T1_tensor - T2_tensor) ** 2, 2.0 * (sigma_tensor ** 2)))
-        filter_coefs = torch.divide(filter_coefs, torch.sum(filter_coefs, 1, keepdim=True)) # (num_sample, T, T, num_feat)
+        T1_tensor = T_axis.reshape(1, T, 1, 1)  # (1, T, 1, 1)
+        T2_tensor = T_axis.reshape(1, 1, T, 1)  # (1, 1, T, 1)
+        filter_coefs = torch.exp(
+            torch.divide(-1.0 * (T1_tensor - T2_tensor) ** 2, 2.0 * (sigma_tensor**2))
+        )
+        filter_coefs = torch.divide(
+            filter_coefs, torch.sum(filter_coefs, 1, keepdim=True)
+        )  # (num_sample, T, T, num_feat)
         # The perturbation is obtained by replacing each input by the linear combination weighted by Gaussian coefs
         X_pert = torch.einsum("bsti,bsi->bti", filter_coefs, X)
         return X_pert
@@ -162,14 +180,18 @@ class GaussianBlur(Perturbation):
         T_axis = torch.arange(1, T + 1, dtype=int, device=self.device)
         self.extremal_tensor = extremal_tensor[:, :, :]
         # Convert the mask into a tensor containing the width of each Gaussian perturbation
-        sigma_tensor = self.sigma_max * ((1 + self.eps) - extremal_tensor).reshape(N_area, 1, T, N_features)
+        sigma_tensor = self.sigma_max * ((1 + self.eps) - extremal_tensor).reshape(
+            N_area, 1, T, N_features
+        )
         # For each feature and each time, we compute the coefficients for the Gaussian perturbation
         T1_tensor = T_axis.reshape(1, 1, T, 1)
         T2_tensor = T_axis.reshape(1, T, 1, 1)
         numerator = -1.0 * (T1_tensor - T2_tensor) ** 2
-        denominator = 2.0 * (sigma_tensor ** 2)
+        denominator = 2.0 * (sigma_tensor**2)
         self.numerator, self.denominator = numerator, denominator
-        filter_coefs = torch.exp(torch.divide(numerator, denominator)) # (N_area, T, T, N_features)
+        filter_coefs = torch.exp(
+            torch.divide(numerator, denominator)
+        )  # (N_area, T, T, N_features)
         self.filter_coefs_before = filter_coefs
         filter_coefs = filter_coefs / torch.sum(filter_coefs, dim=1, keepdim=True)
         self.filter_coefs_after = filter_coefs
@@ -179,22 +201,28 @@ class GaussianBlur(Perturbation):
 
     def apply_extremal_multiple(self, X: torch.Tensor, extremal_tensor: torch.Tensor):
         N_area, num_samples, T, N_features = extremal_tensor.shape
-        T_axis = torch.arange(1, T + 1, dtype=int, device=self.device) #(T)
+        T_axis = torch.arange(1, T + 1, dtype=int, device=self.device)  # (T)
         # Convert the mask into a tensor containing the width of each Gaussian perturbation
         self.extremal_tensor = extremal_tensor[:, 0, :, :]
-        sigma_tensor = self.sigma_max * ((1 + self.eps) - extremal_tensor).reshape(N_area, num_samples, 1, T, N_features)
+        sigma_tensor = self.sigma_max * ((1 + self.eps) - extremal_tensor).reshape(
+            N_area, num_samples, 1, T, N_features
+        )
         # For each feature and each time, we compute the coefficients for the Gaussian perturbation
         T1_tensor = T_axis.reshape(1, 1, 1, T, 1)
         T2_tensor = T_axis.reshape(1, 1, T, 1, 1)
         numerator = -1.0 * (T1_tensor - T2_tensor) ** 2
-        denominator = 2.0 * (sigma_tensor ** 2)
+        denominator = 2.0 * (sigma_tensor**2)
         self.numerator, self.denominator = numerator, denominator
-        filter_coefs = torch.exp(torch.divide(numerator, denominator)) # (N_area, num_samples, T, T, N_features)
+        filter_coefs = torch.exp(
+            torch.divide(numerator, denominator)
+        )  # (N_area, num_samples, T, T, N_features)
         self.filter_coefs_before = filter_coefs
         filter_coefs = filter_coefs / torch.sum(filter_coefs, dim=2, keepdim=True)
         self.filter_coefs_after = filter_coefs
         # The perturbation is obtained by replacing each input by the linear combination weighted by Gaussian coefs
-        X_pert = torch.einsum("absti,bsi->abti", filter_coefs, X) # (N_area, num_samples, T, N_features)
+        X_pert = torch.einsum(
+            "absti,bsi->abti", filter_coefs, X
+        )  # (N_area, num_samples, T, N_features)
         return X_pert
 
 
@@ -313,3 +341,54 @@ class FadeReference(Perturbation):
         # The perturbation is just an affine combination of the input and the baseline weighted by the mask
         X_pert = self.X_ref + mask_tensor * (X - self.X_ref)
         return X_pert
+
+
+class SetDropReference(Perturbation):
+    def __init__(self, device, eps=1.0e-7, temperature=1.0):
+        super().__init__(eps=eps, device=device)
+        self.temperature = temperature
+
+    def gumbel_sigmoid(self, logits):
+        """Samples from Gumbel-Sigmoid distribution for differentiable sampling."""
+        gumbel1 = -torch.log(-torch.log(torch.rand_like(logits) + self.eps) + self.eps)
+        gumbel2 = -torch.log(-torch.log(torch.rand_like(logits) + self.eps) + self.eps)
+        return torch.sigmoid((logits + gumbel1 - gumbel2) / self.temperature)
+
+    def apply(self, X, mask_in, mask_tensor):
+        """Single sample version."""
+        # Convert mask_tensor to logits for Gumbel-Sigmoid
+        logits = torch.log(mask_tensor + self.eps) - torch.log(1 - mask_tensor + self.eps)
+        
+        # Sample binary mask using Gumbel-Sigmoid
+        binary_mask = self.gumbel_sigmoid(logits)
+        
+        # Apply binary mask to X and mask_in
+        X_pert = binary_mask * X
+        mask_out = 1 - (1 - mask_in) * binary_mask
+        
+        return X_pert, mask_out
+
+    def apply_multiple(self, X, mask_in, mask_tensor):
+        """Multiple samples version."""
+        return self.apply(X, mask_in, mask_tensor)
+
+    def apply_extremal(self, X, mask_in, mask_tensor):
+        """Single sample extremal version."""
+        # Convert mask_tensor to logits for Gumbel-Sigmoid
+        logits = torch.log(mask_tensor + self.eps) - torch.log(1 - mask_tensor + self.eps)
+        binary_mask = self.gumbel_sigmoid(logits)
+        
+        # Handle case where we have multiple masks
+        if len(mask_tensor.shape) > len(X.shape):
+            X = X.unsqueeze(0)
+            mask_in = mask_in.unsqueeze(0)
+            
+        # Apply binary mask to X and mask_in
+        X_pert = binary_mask * X
+        mask_out = 1 - (1 - mask_in) * binary_mask
+        
+        return X_pert, mask_out
+
+    def apply_extremal_multiple(self, X, mask_in, mask_tensor):
+        """Multiple samples extremal version."""
+        return self.apply_extremal(X, mask_in, mask_tensor)

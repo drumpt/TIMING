@@ -93,12 +93,13 @@ class WinITExplainer(BaseExplainer):
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
-    def _model_predict(self, x, mask=None):
+    def _model_predict(self, x, mask=None, timesteps=None):
         """
         Run predict on base model. If the output is binary, i.e. num_class = 1, we will make it
         into a probability distribution by append (p, 1-p) to it.
         """
-        p = self.base_model.predict(x, mask, return_all=False)
+        assert timesteps is not None
+        p = self.base_model.predict(x, mask, timesteps, return_all=False)
         if self.base_model.num_states == 1:
             # Create a 'probability distribution' (p, 1 - p)
             prob_distribution = torch.cat((p, 1 - p), dim=1)
@@ -126,6 +127,12 @@ class WinITExplainer(BaseExplainer):
             tic = time()
 
             batch_size, num_features, num_timesteps = x.shape
+            timesteps = (
+                torch.linspace(0, 1, num_timesteps, device=x.device)
+                .unsqueeze(0)
+                .repeat(batch_size, 1)
+            )
+
             scores = []
             for t in range(num_timesteps):
                 window_size = min(t, self.window_size)
@@ -137,7 +144,8 @@ class WinITExplainer(BaseExplainer):
 
                 p_y = self._model_predict(
                     x[:, :, : t + 1],
-                    mask[:, :, : t + 1]
+                    mask[:, :, : t + 1],
+                    timesteps[:, : t + 1],
                 )
                 iS_array = np.zeros(
                     (num_features, window_size, batch_size), dtype=float
@@ -157,17 +165,24 @@ class WinITExplainer(BaseExplainer):
                             .unsqueeze(0)
                             .repeat(self.num_samples, 1, 1, 1)
                         )  # (ns, bs, f, time)
-
                         # replace unknown with counterfactuals
                         x_hat_in[:, :, f, time_past : t + 1] = counterfactuals[
                             f, :, :, :
                         ]
+
                         mask_hat_in = (
-                            mask[:, :, : t +1]
+                            mask[:, :, : t + 1]
                             .unsqueeze(0)
                             .repeat(self.num_samples, 1, 1, 1)
                         )
-                        mask_hat_in[:, :, f, time_past : t + 1] = 0  # Values are exist
+                        mask_hat_in[:, :, f, time_past : t + 1] = 0  # Values exist
+
+                        time_hat_in = (
+                            timesteps[:, : t + 1]
+                            .unsqueeze(0)
+                            .repeat(self.num_samples, 1, 1)
+                        )
+
                         p_y_hat = self._model_predict(
                             x_hat_in.reshape(
                                 self.num_samples * batch_size, num_features, t + 1
@@ -175,6 +190,7 @@ class WinITExplainer(BaseExplainer):
                             mask_hat_in.reshape(
                                 self.num_samples * batch_size, num_features, t + 1
                             ),
+                            time_hat_in.reshape(self.num_samples * batch_size, t + 1),
                         )
                         p_y_exp = (
                             p_y.unsqueeze(0)

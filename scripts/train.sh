@@ -14,10 +14,10 @@ train_set_functions() {
             --train \
             --lr 0.001 \
             --skipexplain \
-            --outpath output_${modeltype} \
-            --ckptpath ckpt_${modeltype} \
-            --plotpath plots_${modeltype} \
-            --logpath logs_${modeltype} \
+            --outpath output/output_${modeltype} \
+            --ckptpath ckpt/ckpt_${modeltype} \
+            --plotpath plots/plots_${modeltype} \
+            --logpath logs/logs_${modeltype} \
             2>&1 &
         i=$((i + 1))
     done

@@ -5,8 +5,8 @@ import logging
 import numpy as np
 import torch
 
-from winit.explainer.attribution.mask_group import MaskGroup
-from winit.explainer.attribution.perturbation import GaussianBlur, FadeMovingAverage
+from winit.explainer.attribution.set_mask_group import SetMaskGroup
+from winit.explainer.attribution.perturbation import SetDropReference
 from winit.explainer.dynamaskutils.losses import (
     log_loss_multiple,
     cross_entropy_multiple,
@@ -14,7 +14,7 @@ from winit.explainer.dynamaskutils.losses import (
 from winit.explainer.explainers import BaseExplainer
 
 
-class DynamaskExplainer(BaseExplainer):
+class DynamaskSetExplainer(BaseExplainer):
     """
     The explainer for Dynamask. The code was modified from the Dynamask repository.
     https://github.com/JonathanCrabbe/Dynamask
@@ -38,14 +38,7 @@ class DynamaskExplainer(BaseExplainer):
         **kwargs,
     ):
         super().__init__(device)
-        if blur_type == "gaussian":
-            self.pert = GaussianBlur(
-                self.device, sigma_max=1.0
-            )  # This is the perturbation operator
-        elif blur_type == "fadema":
-            self.pert = FadeMovingAverage(self.device)
-        else:
-            raise Exception("Unknown blur_type " + blur_type)
+        self.pert = SetDropReference(self.device)
         self.blur_type = blur_type
 
         # This is the list of masks area to consider
@@ -68,7 +61,7 @@ class DynamaskExplainer(BaseExplainer):
         self.use_last_timestep_only = use_last_timestep_only
 
         if len(kwargs):
-            log = logging.getLogger(DynamaskExplainer.__name__)
+            log = logging.getLogger(self.__name__)
             log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
     def attribute(self, x, mask):
@@ -105,7 +98,7 @@ class DynamaskExplainer(BaseExplainer):
         mask_in = mask_in.permute(0, 2, 1)
 
         # Fit the group of mask:
-        mask_group = MaskGroup(
+        mask_group = SetMaskGroup(
             self.pert, self.device, verbose=False, deletion_mode=self.deletion_mode
         )
         mask_group.fit_multiple(

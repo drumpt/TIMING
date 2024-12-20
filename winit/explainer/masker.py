@@ -208,17 +208,11 @@ class Masker:
 
         return new_xs
 
-    def missing_aware_mask(
-        self,
-        x_test: np.ndarray,
-        mask: np.ndarray,
-        importance_scores: Dict[int, np.ndarray],
-    ) -> Dict[int, np.ndarray]:
+    def missing_aware_mask(self, x_test, mask, importance_scores):
         new_xs = {}
         start_masked_count = {}
         all_masked_count = {}
         feature_masked = {}
-
         batch_size, num_features, num_times = x_test.shape
 
         for cv, importance_score in importance_scores.items():
@@ -232,16 +226,16 @@ class Masker:
 
             # Process each sample independently
             for b in range(batch_size):
-                # Store groups and scores for all features
-                all_groups = []  # List of (feature_idx, group) tuples
+                all_groups = []
+                num_masked_total = 0
+                num_masked = 0
 
-                # First pass: identify groups for all features
+                # First identify and score all groups
                 for f in range(num_features):
                     groups = []
                     current_group = []
                     last_real_value = None
 
-                    # Identify groups
                     for t in range(num_times):
                         if mask[b, f, t] == 0:  # Real value
                             if current_group:
@@ -254,12 +248,11 @@ class Masker:
                     if current_group:
                         groups.append(current_group)
 
-                    # Calculate scores and store groups with their feature index
                     for group in groups:
                         group_score = np.mean(importance_score[b, f, group])
                         all_groups.append((group_score, f, group))
 
-                # Sort all groups by importance score
+                # Sort groups by importance
                 all_groups.sort(reverse=True)
 
                 # Determine number of groups to mask
@@ -277,14 +270,18 @@ class Masker:
 
                         # Apply carry forward masking
                         if start_time > 0:
-                            value_to_forward = new_x[b, feature_idx, start_time - 1]
-                            new_x[b, feature_idx, start_time:end_time] = (
-                                value_to_forward
-                            )
+                            # TODO: subject to change
+                            # value_to_forward = new_x[b, feature_idx, start_time - 1]
+                            # new_x[b, feature_idx, start_time:end_time] = (
+                            #     value_to_forward
+                            # )
+                            new_x[b, feature_idx, start_time:end_time] = 0
                             masked[b, feature_idx, start_time:end_time] = True
                             start_masked[b, feature_idx, start_time] = (
                                 True  # Mark start of masking
                             )
+                            num_masked_total += end_time - start_time
+                            num_masked += 1
 
             # Track masking statistics
             start_masked_count[cv] = np.sum(
@@ -297,7 +294,6 @@ class Masker:
 
             new_xs[cv] = new_x
 
-        # Store the statistics in the class
         self.start_masked_count = start_masked_count
         self.all_masked_count = all_masked_count
         self.feature_masked = feature_masked

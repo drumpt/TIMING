@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 
 from winit.dataloader import WinITDataset, SimulatedData
 from winit.explainer.dynamaskexplainer import DynamaskExplainer
+from winit.explainer.dynamasksetexplainer import DynamaskSetExplainer
 from winit.explainer.masker import Masker
 from winit.explainer.explainers import (
     BaseExplainer,
@@ -28,6 +29,7 @@ from winit.explainer.fitexplainers import FITExplainer
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.explainer.winitexplainers import WinITExplainer
 from winit.explainer.winitsetexplainers import WinITSetExplainer
+from winit.explainer.winitsetallexplainers import WinITSetAllExplainer
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
 from winit.utils import aggregate_scores
@@ -171,6 +173,7 @@ class ExplanationRunner:
     def run_inference(
         self,
         data: torch.Tensor | Dict[int, torch.Tensor] | None = None,
+        mask: torch.Tensor | Dict[int, torch.Tensor] | None = None,
         with_activation: bool = True,
         return_all: bool = True,
     ) -> Dict[int, np.ndarray]:
@@ -194,7 +197,9 @@ class ExplanationRunner:
             if return_all is True. Otherwise, the numpy arrays will be of shape
             (num_samples, num_classes).
         """
-        return self.model_trainers.run_inference(data, with_activation, return_all)
+        return self.model_trainers.run_inference(
+            data, mask, with_activation, return_all
+        )
 
     def clean_up(self, clean_importance=True, clean_explainer=True, clean_model=False):
         """
@@ -278,6 +283,28 @@ class ExplanationRunner:
                     **kwargs,
                 )
 
+        elif explainer_name == "winitsetall":
+            train_loaders = (
+                self.dataset.train_loaders
+                if explainer_dict.get("usedatadist") is True
+                else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = WinITSetAllExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=train_loader,
+                    args=args,
+                    **kwargs,
+                )
+
         elif explainer_name == "fit":
             self.explainers = {}
             for cv in self.dataset.cv_to_use():
@@ -325,6 +352,12 @@ class ExplanationRunner:
         elif explainer_name == "dynamask":
             self.explainers = {
                 cv: DynamaskExplainer(self.device, **explainer_dict)
+                for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "dynamaskset":
+            self.explainers = {
+                cv: DynamaskSetExplainer(self.device, **explainer_dict)
                 for cv in self.dataset.cv_to_use()
             }
 
@@ -477,7 +510,6 @@ class ExplanationRunner:
             for x, _, mask in dataloader:
                 x = x.to(self.device)
                 mask = mask.to(self.device)
-                print(f"{mask.shape=}")
                 score = self.explainers[cv].attribute(x, mask)
                 importance_scores.append(score)
 
@@ -568,26 +600,27 @@ class ExplanationRunner:
         """
         testset = list(self.dataset.test_loader.dataset)
         orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
-        x_test = torch.stack(([x[0] for x_ind, x in enumerate(testset)])).cpu().numpy()
-        y_test = torch.stack(([x[1] for x_ind, x in enumerate(testset)])).cpu().numpy()
-        mask_test = (
-            torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
-        )
-        # nan_test = torch.stack(([x[2] for x_ind, x in enumerate(testset)])).cpu().numpy()
+        x_test = torch.stack(([x[0] for x in testset])).cpu().numpy()
+        y_test = torch.stack(([x[1] for x in testset])).cpu().numpy()
+        mask_test = torch.stack(([x[2] for x in testset])).cpu().numpy()
 
         dfs = {}
         for masker in maskers:
-            print(f"{masker=}")
             self.log.info(f"Beginning performance drop for mask={masker.get_name()}")
             new_xs = masker.mask(x_test, mask_test, self.importances)
             new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
+            new_masks = {
+                cv: torch.from_numpy(mask_test) for cv in self.dataset.cv_to_use()
+            }
+
             self._plot_boxes(
                 num_to_plot=20,
                 aggregate_methods=[masker.aggregate_method],
-                x_other=new_xs,
+                x_other=[new_xs],
+                mask_other=[new_masks],
                 mask_name=masker.get_name(),
             )
-            new_preds = self.run_inference(new_xs, return_all=False)
+            new_preds = self.run_inference(new_xs, new_masks, return_all=False)
             df = pd.DataFrame()
             for cv in self.dataset.cv_to_use():
                 orig_pred = orig_preds[cv]
@@ -644,6 +677,7 @@ class ExplanationRunner:
         num_to_plot,
         aggregate_methods: List[str],
         x_other: Dict[int, torch.Tensor] | None = None,
+        mask_other: Dict[int, torch.Tensor] | None = None,
         mask_name: str = "",
     ) -> None:
         """
@@ -676,7 +710,7 @@ class ExplanationRunner:
             plotter.plot_ground_truth_importances(ground_truth_importance)
 
         if x_other is not None:
-            inference_other = self.run_inference(x_other)
+            inference_other = self.run_inference(x_other, mask_other)
             prefix = f"{explainer_name}_{mask_name}_masked"
             plotter.plot_x_pred(x_other, inference_other, prefix=prefix)
 

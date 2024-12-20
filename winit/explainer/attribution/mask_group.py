@@ -100,7 +100,9 @@ class MaskGroup:
         t_fit = time.time()
         torch.manual_seed(self.random_seed)
         reg_factor = size_reg_factor_init
-        error_factor = 1 - 2 * self.deletion_mode  # In deletion mode, the error has to be maximized
+        error_factor = (
+            1 - 2 * self.deletion_mode
+        )  # In deletion mode, the error has to be maximized
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
@@ -109,15 +111,21 @@ class MaskGroup:
         self.T, self.N_features = X.shape
         self.Y_target = f(X, mask)
         # The initial mask tensor has all coefficients set to initial_mask_coeff
-        self.masks_tensor = initial_mask_coeff * torch.ones(size=(N_area, self.T, self.N_features), device=self.device)
+        self.masks_tensor = initial_mask_coeff * torch.ones(
+            size=(N_area, self.T, self.N_features), device=self.device
+        )
         # The target is the same for each mask so we simply repeat it along the first axis
-        Y_target_group = self.Y_target.clone().detach().unsqueeze(0).repeat(N_area, 1, 1)
+        Y_target_group = (
+            self.Y_target.clone().detach().unsqueeze(0).repeat(N_area, 1, 1)
+        )
         # Create a copy of the extremal tensor that is going to be trained, the optimizer and the history
         masks_tensor_new = self.masks_tensor.clone().detach().requires_grad_(True)
         optimizer = optim.SGD([masks_tensor_new], lr=learning_rate, momentum=momentum)
         hist = torch.zeros(3, 0)
         # Initializing the reference vector used in the regulator
-        reg_ref = torch.ones((N_area, self.T * self.N_features), dtype=torch.float32, device=self.device)
+        reg_ref = torch.ones(
+            (N_area, self.T * self.N_features), dtype=torch.float32, device=self.device
+        )
         for i, area in enumerate(self.area_list):
             reg_ref[i, : int((1 - area) * self.T * self.N_features)] = 0.0
 
@@ -127,16 +135,33 @@ class MaskGroup:
             t_loop = time.time()
             # Generate perturbed input and outputs
             if self.deletion_mode:
-                X_pert = self.perturbation.apply_extremal(X=X, extremal_tensor=1 - masks_tensor_new)
+                X_pert = self.perturbation.apply_extremal(
+                    X=X, extremal_tensor=1 - masks_tensor_new
+                )
             else:
-                X_pert = self.perturbation.apply_extremal(X=X, extremal_tensor=masks_tensor_new)
-            Y_pert = torch.stack([f(x_pert) for x_pert in torch.unbind(X_pert, dim=0)], dim=0)
+                X_pert = self.perturbation.apply_extremal(
+                    X=X, extremal_tensor=masks_tensor_new
+                )
+            Y_pert = torch.stack(
+                [f(x_pert) for x_pert in torch.unbind(X_pert, dim=0)], dim=0
+            )
             # Evaluate the overall loss (error [L_e] + size regulation [L_a] + time variation regulation [L_c])
             error = loss_function(Y_pert, Y_target_group)
-            masks_tensor_sorted = masks_tensor_new.reshape(N_area, self.T * self.N_features).sort(dim=1)[0]
+            masks_tensor_sorted = masks_tensor_new.reshape(
+                N_area, self.T * self.N_features
+            ).sort(dim=1)[0]
             size_reg = ((reg_ref - masks_tensor_sorted) ** 2).mean()
-            time_reg = (torch.abs(masks_tensor_new[:, 1 : self.T - 1, :] - masks_tensor_new[:, : self.T - 2, :])).mean()
-            loss = error_factor * error + reg_factor * size_reg + time_reg_factor * time_reg
+            time_reg = (
+                torch.abs(
+                    masks_tensor_new[:, 1 : self.T - 1, :]
+                    - masks_tensor_new[:, : self.T - 2, :]
+                )
+            ).mean()
+            loss = (
+                error_factor * error
+                + reg_factor * size_reg
+                + time_reg_factor * time_reg
+            )
             # Apply the gradient step
 
             optimizer.zero_grad()
@@ -169,7 +194,10 @@ class MaskGroup:
         # Store the individual mask coefficients in distinct mask objects
         for index, mask_tensor in enumerate(self.masks_tensor.unbind(dim=0)):
             mask = Mask(
-                perturbation=self.perturbation, device=self.device, verbose=False, deletion_mode=self.deletion_mode
+                perturbation=self.perturbation,
+                device=self.device,
+                verbose=False,
+                deletion_mode=self.deletion_mode,
             )
             mask.mask_tensor = mask_tensor
             mask.hist = self.hist
@@ -185,7 +213,7 @@ class MaskGroup:
     def fit_multiple(
         self,
         X,
-        mask,
+        mask_in,
         f,
         area_list,
         loss_function_multiple,
@@ -208,28 +236,38 @@ class MaskGroup:
         t_fit = time.time()
         torch.manual_seed(self.random_seed)
         reg_factor = size_reg_factor_init
-        error_factor = 1 - 2 * self.deletion_mode  # In deletion mode, the error has to be maximized
+        error_factor = (
+            1 - 2 * self.deletion_mode
+        )  # In deletion mode, the error has to be maximized
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
-        self.mask = mask
+        self.mask_in = mask_in
         self.n_epoch = n_epoch
         num_samples, self.T, self.N_features = X.shape
-        self.Y_target = f(X, mask) # num_samples, num_time, num_state=2
+        self.Y_target = f(X, mask_in)  # num_samples, num_time, num_state=2
         if use_last_timestep_only:
             self.Y_target = self.Y_target[:, -1:, :]
         # The initial mask tensor has all coefficients set to initial_mask_coeff
-        self.masks_tensor = initial_mask_coeff * torch.ones(size=(N_area, num_samples, self.T, self.N_features), device=self.device)
+        self.masks_tensor = initial_mask_coeff * torch.ones(
+            size=(N_area, num_samples, self.T, self.N_features), device=self.device
+        )
         # The target is the same for each mask so we simply repeat it along the first axis
-        Y_target_group = self.Y_target.clone().detach().unsqueeze(0).repeat(N_area, 1, 1, 1)
+        Y_target_group = (
+            self.Y_target.clone().detach().unsqueeze(0).repeat(N_area, 1, 1, 1)
+        )
         # Create a copy of the extremal tensor that is going to be trained, the optimizer and the history
         masks_tensor_new = self.masks_tensor.clone().detach().requires_grad_(True)
         optimizer = optim.SGD([masks_tensor_new], lr=learning_rate, momentum=momentum)
         metrics = []
         # Initializing the reference vector used in the regulator
-        reg_ref = torch.ones((N_area, num_samples, self.T * self.N_features), dtype=torch.float32, device=self.device)
+        reg_ref = torch.ones(
+            (N_area, num_samples, self.T * self.N_features),
+            dtype=torch.float32,
+            device=self.device,
+        )
         for i, area in enumerate(self.area_list):
-            reg_ref[i, :, :int((1 - area) * self.T * self.N_features)] = 0.0
+            reg_ref[i, :, : int((1 - area) * self.T * self.N_features)] = 0.0
 
         # Run the optimization
         for k in range(n_epoch):
@@ -237,9 +275,13 @@ class MaskGroup:
             t_loop = time.time()
             # Generate perturbed input and outputs
             if self.deletion_mode:
-                X_pert = self.perturbation.apply_extremal_multiple(X=X, extremal_tensor=1 - masks_tensor_new)
+                X_pert = self.perturbation.apply_extremal_multiple(
+                    X=X, extremal_tensor=1 - masks_tensor_new
+                )
             else:
-                X_pert = self.perturbation.apply_extremal_multiple(X=X, extremal_tensor=masks_tensor_new)
+                X_pert = self.perturbation.apply_extremal_multiple(
+                    X=X, extremal_tensor=masks_tensor_new
+                )
 
             # x_pert (num_samples, T, num_feature)
             # f(x_pert) = (num_sample, T, num_state)
@@ -248,22 +290,39 @@ class MaskGroup:
             # x_pert (T, num_feature)
             # f(x_pert) = (T, num_state)
             # Y_pert = (n_area, T, num_state)
-            X_pert_flatten = X_pert.reshape(N_area * num_samples, self.T, self.N_features)
-            mask_repeated = self.mask.unsqueeze(0).repeat(N_area, 1, 1, 1)  # [N_area, num_samples, T, N_features]
-            mask_pert_flatten = mask_repeated.reshape(N_area * num_samples, self.T, self.N_features)
-            Y_pert_flatten = f(X_pert_flatten, mask_pert_flatten) # (N_area * num_samples, T, num_state)
+            X_pert_flatten = X_pert.reshape(
+                N_area * num_samples, self.T, self.N_features
+            )
+            mask_in_repeated = self.mask_in.unsqueeze(0).repeat(
+                N_area, 1, 1, 1
+            )  # [N_area, num_samples, T, N_features]
+            mask_in_pert_flatten = mask_in_repeated.reshape(
+                N_area * num_samples, self.T, self.N_features
+            )
+            Y_pert_flatten = f(
+                X_pert_flatten, mask_in_pert_flatten
+            )  # (N_area * num_samples, T, num_state)
             if use_last_timestep_only:
                 Y_pert = Y_pert_flatten.reshape(N_area, num_samples, 1, -1)
             else:
                 Y_pert = Y_pert_flatten.reshape(N_area, num_samples, self.T, -1)
 
             # Evaluate the overall loss (error [L_e] + size regulation [L_a] + time variation regulation [L_c])
-            error = loss_function_multiple(Y_pert, Y_target_group) # (num_sample)
-            masks_tensor_sorted = masks_tensor_new.reshape(N_area, num_samples, self.T * self.N_features).sort(dim=2)[0]
+            error = loss_function_multiple(Y_pert, Y_target_group)  # (num_sample)
+            masks_tensor_sorted = masks_tensor_new.reshape(
+                N_area, num_samples, self.T * self.N_features
+            ).sort(dim=2)[0]
             size_reg = ((reg_ref - masks_tensor_sorted) ** 2).mean(dim=[0, 2])
-            masks_tensor_diff = masks_tensor_new[:, :, 1: self.T - 1, :] - masks_tensor_new[:, :, :self.T - 2, :]
+            masks_tensor_diff = (
+                masks_tensor_new[:, :, 1 : self.T - 1, :]
+                - masks_tensor_new[:, :, : self.T - 2, :]
+            )
             time_reg = (torch.abs(masks_tensor_diff)).mean(dim=[0, 2, 3])
-            loss = error_factor * error + reg_factor * size_reg + time_reg_factor * time_reg
+            loss = (
+                error_factor * error
+                + reg_factor * size_reg
+                + time_reg_factor * time_reg
+            )
             # Apply the gradient step
             optimizer.zero_grad()
             loss.backward(torch.ones_like(loss))
@@ -271,7 +330,9 @@ class MaskGroup:
             # Ensures that the constraint is fulfilled
             masks_tensor_new.data = masks_tensor_new.data.clamp(0, 1)
             # Save the error and the regulator
-            metric = torch.stack([error, size_reg, time_reg], dim=1).detach().cpu().numpy()
+            metric = (
+                torch.stack([error, size_reg, time_reg], dim=1).detach().cpu().numpy()
+            )
             metrics.append(metric)
             # Increase the regulator coefficient
             reg_factor *= reg_multiplicator
@@ -284,7 +345,9 @@ class MaskGroup:
                     f" time elapsed = {t_loop:.3g} s"
                 )
         # Update the mask and history tensor, print the final message
-        self.masks_tensor = masks_tensor_new.clone().detach().requires_grad_(False) # (N_area, num_samples, T, nfeat)
+        self.masks_tensor = (
+            masks_tensor_new.clone().detach().requires_grad_(False)
+        )  # (N_area, num_samples, T, nfeat)
         self.hist = torch.from_numpy(np.stack(metrics, axis=2))
         t_fit = time.time() - t_fit
         if self.verbose:
@@ -302,12 +365,16 @@ class MaskGroup:
         # Store the individual mask coefficients in distinct mask objects
         for index, mask_tensor in enumerate(self.masks_tensor.unbind(dim=0)):
             mask = Mask(
-                perturbation=self.perturbation, device=self.device, verbose=False, deletion_mode=self.deletion_mode
+                perturbation=self.perturbation,
+                device=self.device,
+                verbose=False,
+                deletion_mode=self.deletion_mode,
             )
             mask.mask_tensor = mask_tensor
             mask.hist = self.hist
             mask.f = self.f
             mask.X = self.X
+            mask.mask = self.mask_in
             mask.n_epoch = self.n_epoch
             mask.T, mask.N_features = self.T, self.N_features
             mask.Y_target = self.Y_target
@@ -342,18 +409,29 @@ class MaskGroup:
 
     def get_extremal_mask_multiple(self, thresholds):
         """This method returns the extremal mask for the acceptable error threshold (called epsilon in the paper)."""
-        error_list = torch.stack([mask.get_error_multiple() for mask in self.mask_list], dim=1)
+        error_list = torch.stack(
+            [mask.get_error_multiple() for mask in self.mask_list], dim=1
+        )
         mask_stacked = torch.stack([mask.mask_tensor for mask in self.mask_list])
         num_area, num_samples, num_times, num_features = mask_stacked.shape
         # If the minimal error is above the threshold, the best we can do is select the mask with lowest error
         thres_mask = torch.min(error_list, dim=1)[0] > thresholds
-        best_mask = torch.argmin(error_list, dim=1) #(num_sample)
-        error_mask = (error_list < thresholds.view(-1, 1)) * torch.arange(-len(self.mask_list), 0).view(1, -1).to(self.device)
+        best_mask = torch.argmin(error_list, dim=1)  # (num_sample)
+        error_mask = (error_list < thresholds.view(-1, 1)) * torch.arange(
+            -len(self.mask_list), 0
+        ).view(1, -1).to(self.device)
         first_mask = torch.argmin(error_mask, dim=1)
-        indexes = torch.where(thres_mask, best_mask, first_mask) # (num_sample)
-        selected_masks = torch.gather(mask_stacked, 0, indexes.view(1, num_samples, 1, 1).expand(1, num_samples, num_times, num_features))
-        return selected_masks.reshape(num_samples, num_times, num_features) #(num_samples, num_times, num_features)
-
+        indexes = torch.where(thres_mask, best_mask, first_mask)  # (num_sample)
+        selected_masks = torch.gather(
+            mask_stacked,
+            0,
+            indexes.view(1, num_samples, 1, 1).expand(
+                1, num_samples, num_times, num_features
+            ),
+        )
+        return selected_masks.reshape(
+            num_samples, num_times, num_features
+        )  # (num_samples, num_times, num_features)
 
     def plot_errors(self):
         """This method plots the error as a function of the mask size."""
