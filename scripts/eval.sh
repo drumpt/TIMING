@@ -62,32 +62,66 @@ test_seft() {
 }
 
 test_mam() {
-    mask=mam
-    top_list="10 1 5 30"
+    top_list="10"
     explainer_list="ig deeplift gradientshap fo afo dynamask fit winit winitset dynamaskset"
-    for top in ${top_list}; do
+    modeltype_list="gru mtand"
+
+    for modeltype in ${modeltype_list}; do
+        for top in ${top_list}; do
+            for explainer in ${explainer_list}; do
+                CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
+                    --data mimic \
+                    --eval \
+                    --modeltype ${modeltype} \
+                    --explainer ${explainer} \
+                    --testbs 50 \
+                    --mask mam \
+                    --top ${top} \
+                    --logfile mimic_${explainer}_${modeltype}_mam_${top} \
+                    --resultfile mimic_${explainer}_${modeltype}_mam_${top}.csv \
+                    2>&1 &
+                i=$((i + 1))
+            done
+        done
+    done
+}
+
+test_standard_masking() {
+    explainer_list="ig deeplift gradientshap fo afo dynamask fit winit winitset dynamaskset"
+    modeltype_list="gru mtand"
+
+    for modeltype in ${modeltype_list}; do
         for explainer in ${explainer_list}; do
             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
                 --data mimic \
                 --eval \
-                --modeltype mtand \
+                --modeltype ${modeltype} \
                 --explainer ${explainer} \
-                --mask ${mask} \
                 --testbs 50 \
-                --top ${top} \
-                --logfile mimic_${explainer}_${mask}_${top} \
-                2>&1
+                --logfile mimic_${explainer}_${modeltype}_standard_masking \
+                --resultfile mimic_${explainer}_${modeltype}_standard_masking.csv \
+                2>&1 &
             i=$((i + 1))
         done
     done
 }
 
+wait_n() {
+    background=($(jobs -p))
+    echo ${num_max_jobs}
+    if ((${#background[@]} >= num_max_jobs)); then
+        wait -n
+    fi
+}
+
 GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
 i=3
+num_max_jobs=8
 
 # test_corr_masking
 # test_standard
 # test_set
 # test_seft
-test_mam
+# test_mam
+test_standard_masking
