@@ -501,7 +501,7 @@ if __name__ == "__main__":
         "--mask",
         nargs="+",
         choices=["std", "end", "mam"],
-        default=["std", "end"],
+        default=["std", "end", "mam"],
         help="Mask strategy",
     )
     parser.add_argument(

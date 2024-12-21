@@ -250,6 +250,8 @@ class Masker:
 
                     for group in groups:
                         group_score = np.mean(importance_score[b, f, group])
+                        # group_score = np.max(importance_score[b, f, group])  # or
+                        # group_score = importance_score[b, f, group[0]]  # score of original point
                         all_groups.append((group_score, f, group))
 
                 # Sort groups by importance
