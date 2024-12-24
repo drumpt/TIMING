@@ -62,33 +62,11 @@ test_seft() {
 }
 
 test_mam() {
-    top_list="10"
     explainer_list="ig deeplift gradientshap fo afo dynamask fit winit winitset dynamaskset"
     modeltype_list="gru mtand"
 
-    for modeltype in ${modeltype_list}; do
-        for top in ${top_list}; do
-            for explainer in ${explainer_list}; do
-                CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
-                    --data mimic \
-                    --eval \
-                    --modeltype ${modeltype} \
-                    --explainer ${explainer} \
-                    --testbs 50 \
-                    --mask mam \
-                    --top ${top} \
-                    --logfile mimic_${explainer}_${modeltype}_mam_${top} \
-                    --resultfile mimic_${explainer}_${modeltype}_mam_${top}.csv \
-                    2>&1 &
-                i=$((i + 1))
-            done
-        done
-    done
-}
-
-test_standard_masking() {
-    explainer_list="ig deeplift gradientshap fo afo dynamask fit winit winitset dynamaskset"
-    modeltype_list="gru mtand"
+    top=10
+    toppc=0.01
 
     for modeltype in ${modeltype_list}; do
         for explainer in ${explainer_list}; do
@@ -98,9 +76,32 @@ test_standard_masking() {
                 --modeltype ${modeltype} \
                 --explainer ${explainer} \
                 --testbs 50 \
-                --logfile mimic_${explainer}_${modeltype}_standard_masking \
-                --resultfile mimic_${explainer}_${modeltype}_standard_masking.csv \
+                --mask mam \
+                --top ${top} \
+                --toppc ${toppc} \
+                --logfile mimic_${explainer}_${modeltype}_mam_${top} \
+                --resultfile mimic_${explainer}_${modeltype}_mam_${top}.csv \
                 2>&1 &
+            i=$((i + 1))
+        done
+    done
+}
+
+test_all_masking() {
+    explainer_list="fit winit"
+    modeltype_list="mtand"
+
+    for modeltype in ${modeltype_list}; do
+        for explainer in ${explainer_list}; do
+            CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
+                --data mimic \
+                --eval \
+                --modeltype ${modeltype} \
+                --explainer ${explainer} \
+                --logfile mimic_${explainer}_${modeltype}_all_masking \
+                --resultfile mimic_${explainer}_${modeltype}_all_masking.csv \
+                2>&1 &
+            wait_n
             i=$((i + 1))
         done
     done
@@ -117,11 +118,11 @@ wait_n() {
 GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
 i=3
-num_max_jobs=8
+num_max_jobs=4
 
 # test_corr_masking
 # test_standard
 # test_set
 # test_seft
 # test_mam
-test_standard_masking
+test_all_masking

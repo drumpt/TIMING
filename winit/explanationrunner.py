@@ -599,19 +599,17 @@ class ExplanationRunner:
             A DataFrame object of shape (num_cv * num_maskers, num_metrics=3)
         """
         testset = list(self.dataset.test_loader.dataset)
-        orig_preds = self.run_inference(self.dataset.test_loader, return_all=False)
         x_test = torch.stack(([x[0] for x in testset])).cpu().numpy()
         y_test = torch.stack(([x[1] for x in testset])).cpu().numpy()
         mask_test = torch.stack(([x[2] for x in testset])).cpu().numpy()
+        orig_preds = self.run_inference(x_test, mask_test, return_all=False)
 
         dfs = {}
         for masker in maskers:
             self.log.info(f"Beginning performance drop for mask={masker.get_name()}")
-            new_xs = masker.mask(x_test, mask_test, self.importances)
+            new_xs, new_masks = masker.mask(x_test, mask_test, self.importances)
             new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
-            new_masks = {
-                cv: torch.from_numpy(mask_test) for cv in self.dataset.cv_to_use()
-            }
+            new_masks = {k: torch.from_numpy(v) for k, v in new_masks.items()}
 
             self._plot_boxes(
                 num_to_plot=20,

@@ -59,7 +59,7 @@ class MaskGroup:
     def fit(
         self,
         X,
-        mask,
+        mask_in,
         f,
         area_list,
         loss_function,
@@ -106,10 +106,10 @@ class MaskGroup:
         reg_multiplicator = np.exp(np.log(size_reg_factor_dilation) / n_epoch)
         self.f = f
         self.X = X
-        self.mask = mask
+        self.mask_in = mask_in
         self.n_epoch = n_epoch
         self.T, self.N_features = X.shape
-        self.Y_target = f(X, mask)
+        self.Y_target = f(X, mask_in)
         # The initial mask tensor has all coefficients set to initial_mask_coeff
         self.masks_tensor = initial_mask_coeff * torch.ones(
             size=(N_area, self.T, self.N_features), device=self.device
@@ -143,7 +143,7 @@ class MaskGroup:
                     X=X, extremal_tensor=masks_tensor_new
                 )
             Y_pert = torch.stack(
-                [f(x_pert) for x_pert in torch.unbind(X_pert, dim=0)], dim=0
+                [f(x_pert, mask_in) for x_pert in torch.unbind(X_pert, dim=0)], dim=0
             )
             # Evaluate the overall loss (error [L_e] + size regulation [L_a] + time variation regulation [L_c])
             error = loss_function(Y_pert, Y_target_group)
@@ -162,8 +162,8 @@ class MaskGroup:
                 + reg_factor * size_reg
                 + time_reg_factor * time_reg
             )
-            # Apply the gradient step
 
+            # Apply the gradient step
             optimizer.zero_grad()
             loss.backward(torch.ones_like(loss))
             optimizer.step()

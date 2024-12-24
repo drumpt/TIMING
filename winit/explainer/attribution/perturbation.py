@@ -357,16 +357,18 @@ class SetDropReference(Perturbation):
     def apply(self, X, mask_in, mask_tensor):
         """Single sample version."""
         # Convert mask_tensor to logits for Gumbel-Sigmoid
-        logits = torch.log(mask_tensor + self.eps) - torch.log(1 - mask_tensor + self.eps)
-        
+        logits = torch.log(mask_tensor + self.eps) - torch.log(
+            1 - mask_tensor + self.eps
+        )
+
         # Sample binary mask using Gumbel-Sigmoid
         binary_mask = self.gumbel_sigmoid(logits)
-        
+
         # Apply binary mask to X and mask_in
         X_pert = binary_mask * X
-        mask_out = 1 - (1 - mask_in) * binary_mask
-        
-        return X_pert, mask_out
+        # mask_out = 1 - (1 - mask_in) * binary_mask
+
+        return X_pert, binary_mask
 
     def apply_multiple(self, X, mask_in, mask_tensor):
         """Multiple samples version."""
@@ -375,19 +377,21 @@ class SetDropReference(Perturbation):
     def apply_extremal(self, X, mask_in, mask_tensor):
         """Single sample extremal version."""
         # Convert mask_tensor to logits for Gumbel-Sigmoid
-        logits = torch.log(mask_tensor + self.eps) - torch.log(1 - mask_tensor + self.eps)
+        logits = torch.log(mask_tensor + self.eps) - torch.log(
+            1 - mask_tensor + self.eps
+        )
         binary_mask = self.gumbel_sigmoid(logits)
-        
+
         # Handle case where we have multiple masks
         if len(mask_tensor.shape) > len(X.shape):
             X = X.unsqueeze(0)
             mask_in = mask_in.unsqueeze(0)
-            
+
         # Apply binary mask to X and mask_in
         X_pert = binary_mask * X
-        mask_out = 1 - (1 - mask_in) * binary_mask
-        
-        return X_pert, mask_out
+        # mask_out = 1 - (1 - mask_in) * binary_mask
+
+        return X_pert, binary_mask
 
     def apply_extremal_multiple(self, X, mask_in, mask_tensor):
         """Multiple samples extremal version."""
