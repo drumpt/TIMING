@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -72,60 +72,61 @@ class Masker:
         x_test: np.ndarray,
         mask_test: np.ndarray,
         importance_scores: Dict[int, np.ndarray],
-    ) -> Dict[int, np.ndarray]:
+    ) -> Tuple[Dict[int, np.ndarray], Dict[int, np.ndarray]]:
         """
         Perform masking.
 
         Args:
             x_test:
                 The original input of shape (num_samples, num_features, num_times)
+            mask_test:
+                The original mask of shape (num_samples, num_features, num_times)
             importance_scores:
                 The importance score dictionary from CV to numpy arrays.
 
         Returns:
-            A dictionary from CV to numpy arrays of shape (num_samples, num_features, num_times)
-            that has x_test masked.
-
+            A tuple of two dictionaries from CV to numpy arrays of shape (num_samples, num_features, num_times)
+            First dictionary has masked x_test, second has corresponding masks.
         """
         if self.mask_method == "mam":
             return self.missing_aware_mask(x_test, mask_test, importance_scores)
 
         new_xs = {}
+        new_masks = {}
         start_masked_count = {}
         all_masked_count = {}
         feature_masked = {}
         num_samples, num_features, num_times = x_test.shape
+        
         for cv, importance_score in importance_scores.items():
             importance_score = aggregate_scores(importance_score, self.aggregate_method)
             if self.absolutize:
                 importance_score = np.abs(importance_score)
             coordinate_list = self._generate_arg_sort(
                 importance_score, randomize_ties=True
-            )  # (num_coordinates, 3)
+            )
 
             new_x = x_test.copy()
+            new_mask = mask_test.copy()
             masked = np.zeros_like(new_x, dtype=bool)
             start_masked = np.zeros_like(new_x, dtype=bool)
+            
             if self.mask_method in ["std", "end"]:
                 if not self.local:
                     num_feature_time_drop = int(len(coordinate_list) * self.top)
                     coordinate_list = coordinate_list[:num_feature_time_drop]
                     for coordinate in coordinate_list:
                         sample_id, feature_id, time_id = coordinate
-                        if (
-                            importance_score[sample_id, feature_id, time_id]
-                            <= self.importance_threshold
-                        ):
-                            # not important enough. Not masking.
+                        if importance_score[sample_id, feature_id, time_id] <= self.importance_threshold:
                             break
                         if masked[sample_id, feature_id, time_id]:
-                            # already masked.
                             continue
                         end_time, new_x[sample_id, feature_id, :] = self._carry_forward(
                             time_id, new_x[sample_id, feature_id, :], self.mask_method
                         )
                         masked[sample_id, feature_id, time_id:end_time] = True
                         start_masked[sample_id, feature_id, time_id] = True
+                        new_mask[sample_id, feature_id, time_id:end_time] = 1  # Update mask
                 else:
                     num_feature_time = new_x.shape[1] * (new_x.shape[2] - self.min_time)
                     for sample_id in range(new_x.shape[0]):
@@ -133,83 +134,72 @@ class Masker:
                         num_masked_total = 0
                         num_masked = 0
                         for cur in range(num_feature_time):
-                            sample_index, feature_id, time_id = coordinate_list[
-                                start + cur
-                            ]
-                            # sanity check
+                            sample_index, feature_id, time_id = coordinate_list[start + cur]
                             if sample_index != sample_id:
                                 raise RuntimeError("Failed sanity check!")
 
-                            balance_condition = (
-                                self.balanced and num_masked_total >= self.top
-                            )
+                            balance_condition = self.balanced and num_masked_total >= self.top
                             num_drop_condition = num_masked >= self.top
                             threshold_condition = (
                                 importance_score[sample_id, feature_id, time_id]
                                 <= self.importance_threshold
                             )
-                            if (
-                                threshold_condition
-                                or balance_condition
-                                or num_drop_condition
-                            ):
-                                # stop masking because any of the condition occurs.
+                            if threshold_condition or balance_condition or num_drop_condition:
                                 break
                             if masked[sample_index, feature_id, time_id]:
-                                # already masked.
                                 continue
-                            end_ts, new_x[sample_id, feature_id, :] = (
-                                self._carry_forward(
-                                    time_id,
-                                    new_x[sample_id, feature_id, :],
-                                    self.mask_method,
-                                )
+                            end_ts, new_x[sample_id, feature_id, :] = self._carry_forward(
+                                time_id,
+                                new_x[sample_id, feature_id, :],
+                                self.mask_method,
                             )
                             masked[sample_id, feature_id, time_id:end_ts] = True
                             start_masked[sample_id, feature_id, time_id] = True
+                            new_mask[sample_id, feature_id, time_id:end_ts] = 1  # Update mask
                             num_masked_total += end_ts - time_id
                             num_masked += 1
+                            
             elif self.mask_method == "end_fit":
-                # Version of the experiments from the original fit paper
-                # fmt: off
                 for i, x in enumerate(new_x):
                     if not self.local:
                         q = np.percentile(importance_score[:, :, self.min_time:],
-                                          100 - self.top * 100)
+                                        100 - self.top * 100)
                         min_t_feat = [
                             np.min(np.where(importance_score[i, f, self.min_time:] >= q)[0]) if
                             len(np.where(importance_score[i, f, self.min_time:] >= q)[0]) > 0 else
-                            x.shape[-1] - self.min_time - 1 for f in range(num_features)]
+                            x.shape[-1] - self.min_time - 1 for f in range(num_features)
+                        ]
                         for f in range(importance_score[i].shape[0]):
-                            x[f, min_t_feat[f] + self.min_time:] = x[
-                                f, min_t_feat[f] + self.min_time - 1]
+                            x[f, min_t_feat[f] + self.min_time:] = x[f, min_t_feat[f] + self.min_time - 1]
                             masked[i, f, min_t_feat[f] + self.min_time:] = True
                             start_masked[i, f, min_t_feat[f] + self.min_time] = True
+                            new_mask[i, f, min_t_feat[f] + self.min_time:] = 1  # Update mask
                     else:
                         for _ in range(self.top):
                             imp = np.unravel_index(importance_score[i, :, self.min_time:].argmax(),
-                                                   importance_score[i, :, self.min_time:].shape)
+                                                importance_score[i, :, self.min_time:].shape)
                             importance_score[i, imp[0], imp[1] + self.min_time:] = -1
-                            x[imp[0], imp[1] + self.min_time:] = x[
-                                imp[0], imp[1] + self.min_time - 1]
+                            x[imp[0], imp[1] + self.min_time:] = x[imp[0], imp[1] + self.min_time - 1]
                             masked[i, imp[0], imp[1] + self.min_time:] = True
                             start_masked[i, imp[0], imp[1] + self.min_time] = True
-                # fmt: on
+                            new_mask[i, imp[0], imp[1] + self.min_time:] = 1  # Update mask
 
             start_masked_count[cv] = np.sum(start_masked, axis=0)
             all_masked_count[cv] = np.sum(masked, axis=0)
             feature_masked[cv] = np.sum(np.sum(start_masked, axis=1) > 0, axis=0)
 
             new_xs[cv] = new_x
+            new_masks[cv] = new_mask
 
         self.start_masked_count = start_masked_count
         self.all_masked_count = all_masked_count
         self.feature_masked = feature_masked
 
-        return new_xs
+        return new_xs, new_masks
 
-    def missing_aware_mask(self, x_test, mask, importance_scores):
+    def missing_aware_mask(self, x_test, mask_test, importance_scores):
         new_xs = {}
+        new_masks = {}
         start_masked_count = {}
         all_masked_count = {}
         feature_masked = {}
@@ -221,6 +211,7 @@ class Masker:
                 importance_score = np.abs(importance_score)
 
             new_x = x_test.copy()
+            new_mask = mask_test.copy()
             masked = np.zeros_like(new_x, dtype=bool)
             start_masked = np.zeros_like(new_x, dtype=bool)
 
@@ -237,7 +228,7 @@ class Masker:
                     last_real_value = None
 
                     for t in range(num_times):
-                        if mask[b, f, t] == 0:  # Real value
+                        if mask_test[b, f, t] == 0:  # Real value
                             if current_group:
                                 groups.append(current_group)
                             current_group = [t]
@@ -249,9 +240,7 @@ class Masker:
                         groups.append(current_group)
 
                     for group in groups:
-                        group_score = np.mean(importance_score[b, f, group])
-                        # group_score = np.max(importance_score[b, f, group])  # or
-                        # group_score = importance_score[b, f, group[0]]  # score of original point
+                        group_score = np.max(importance_score[b, f, group])
                         all_groups.append((group_score, f, group))
 
                 # Sort groups by importance
@@ -261,7 +250,10 @@ class Masker:
                 if isinstance(self.top, float):
                     num_groups_to_mask = int(len(all_groups) * self.top)
                 else:
-                    num_groups_to_mask = min(self.top, len(all_groups))
+                    num_groups_to_mask = min(
+                        int(self.top * len(all_groups) / (num_features * num_times)),
+                        len(all_groups)
+                    )
 
                 # Mask selected groups across features
                 for i in range(num_groups_to_mask):
@@ -272,35 +264,26 @@ class Masker:
 
                         # Apply carry forward masking
                         if start_time > 0:
-                            # TODO: subject to change
-                            # value_to_forward = new_x[b, feature_idx, start_time - 1]
-                            # new_x[b, feature_idx, start_time:end_time] = (
-                            #     value_to_forward
-                            # )
                             new_x[b, feature_idx, start_time:end_time] = 0
+                            new_mask[b, feature_idx, start_time:end_time] = 1
                             masked[b, feature_idx, start_time:end_time] = True
-                            start_masked[b, feature_idx, start_time] = (
-                                True  # Mark start of masking
-                            )
+                            start_masked[b, feature_idx, start_time] = True
                             num_masked_total += end_time - start_time
                             num_masked += 1
 
             # Track masking statistics
-            start_masked_count[cv] = np.sum(
-                start_masked, axis=0
-            )  # Sum over batch dimension
-            all_masked_count[cv] = np.sum(masked, axis=0)  # Sum over batch dimension
-            feature_masked[cv] = np.sum(
-                np.sum(start_masked, axis=1) > 0, axis=0
-            )  # Count features with any masking
+            start_masked_count[cv] = np.sum(start_masked, axis=0)
+            all_masked_count[cv] = np.sum(masked, axis=0)
+            feature_masked[cv] = np.sum(np.sum(start_masked, axis=1) > 0, axis=0)
 
             new_xs[cv] = new_x
+            new_masks[cv] = new_mask
 
         self.start_masked_count = start_masked_count
         self.all_masked_count = all_masked_count
         self.feature_masked = feature_masked
 
-        return new_xs
+        return new_xs, new_masks
 
     def _generate_arg_sort(self, scores, randomize_ties=True):
         """

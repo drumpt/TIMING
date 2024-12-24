@@ -545,8 +545,14 @@ class ModelTrainerWithCv:
 
         if data is None:
             data = self.dataset.test_loader
-        elif isinstance(data, torch.Tensor):
-            data = DataLoader(TensorDataset(data), batch_size=self.dataset.testbs)
+        else:
+            data = torch.tensor(data)
+            fake_label = torch.zeros_like(data)
+            mask = torch.tensor(mask)
+            data = DataLoader(
+                TensorDataset(data, fake_label, mask),
+                batch_size=self.dataset.testbs
+            )
 
         return {
             cv: model_trainer.run_inference(data, with_activation, return_all)
