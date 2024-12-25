@@ -259,8 +259,8 @@ class ModelTrainer:
         outputs = []
 
         for batch in data:
-            input = batch[0].to(self.device)
-            mask = batch[2].to(self.device)
+            input = torch.tensor(batch[0]).to(self.device)
+            mask = torch.tensor(batch[2]).to(self.device)
             output = self.model(input, mask, return_all=return_all)
             if with_activation:
                 output = self.model.activation(output)
@@ -530,9 +530,9 @@ class ModelTrainerWithCv:
         if isinstance(data, dict):
             return_dict = {}
             for cv, model_trainer in self.model_trainers.items():
-                data_cv = data[cv]
+                data_cv = torch.tensor(data[cv])
                 fake_label_cv = torch.zeros_like(data_cv)
-                mask_cv = mask[cv]
+                mask_cv = torch.tensor(mask[cv])
                 if isinstance(data_cv, torch.Tensor):
                     data_cv = DataLoader(
                         TensorDataset(data_cv, fake_label_cv, mask_cv), # placeholder for labels
@@ -545,14 +545,24 @@ class ModelTrainerWithCv:
 
         if data is None:
             data = self.dataset.test_loader
-        else:
-            data = torch.tensor(data)
+        elif isinstance(data, torch.Tensor) or isinstance(data, np.ndarray):
+            data = torch.Tensor(data)
             fake_label = torch.zeros_like(data)
-            mask = torch.tensor(mask)
+            mask = torch.Tensor(mask)
             data = DataLoader(
-                TensorDataset(data, fake_label, mask),
-                batch_size=self.dataset.testbs
+                TensorDataset(
+                    torch.tensor(data),
+                    torch.tensor(fake_label),
+                    torch.tensor(mask),
+                ),
+                batch_size=self.dataset.testbs,
             )
+
+        try:
+            print(f"{data=}")
+            print(f"{data.shape=}")
+        except:
+            pass
 
         return {
             cv: model_trainer.run_inference(data, with_activation, return_all)

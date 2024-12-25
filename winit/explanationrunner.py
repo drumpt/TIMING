@@ -21,15 +21,19 @@ from winit.explainer.explainers import (
     IGExplainer,
     DeepLiftExplainer,
     FOExplainer,
+    FOZeroExplainer,
     AFOExplainer,
     GradientShapExplainer,
     MockExplainer,
 )
 from winit.explainer.fitexplainers import FITExplainer
+from winit.explainer.fitsetzeroexplainers import FITSetZeroExplainer
+from winit.explainer.fitsetcfexplainers import FITSetCFExplainer
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.explainer.winitexplainers import WinITExplainer
-from winit.explainer.winitsetexplainers import WinITSetExplainer
-from winit.explainer.winitsetallexplainers import WinITSetAllExplainer
+from winit.explainer.winitsetzeroexplainers import WinITSetZeroExplainer
+from winit.explainer.winitsetzerolongexplainers import WinITSetZeroLongExplainer
+from winit.explainer.winitsetcfexplainers import WinITSetCFExplainer
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
 from winit.utils import aggregate_scores
@@ -261,7 +265,7 @@ class ExplanationRunner:
                     **kwargs,
                 )
 
-        elif explainer_name == "winitset":
+        elif explainer_name == "winitsetzero":
             train_loaders = (
                 self.dataset.train_loaders
                 if explainer_dict.get("usedatadist") is True
@@ -273,7 +277,7 @@ class ExplanationRunner:
                 kwargs.pop("usedatadist")
             for cv in self.dataset.cv_to_use():
                 train_loader = train_loaders[cv] if train_loaders is not None else None
-                self.explainers[cv] = WinITSetExplainer(
+                self.explainers[cv] = WinITSetZeroExplainer(
                     self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
@@ -283,7 +287,7 @@ class ExplanationRunner:
                     **kwargs,
                 )
 
-        elif explainer_name == "winitsetall":
+        elif explainer_name == "winitsetzerolong":
             train_loaders = (
                 self.dataset.train_loaders
                 if explainer_dict.get("usedatadist") is True
@@ -295,7 +299,29 @@ class ExplanationRunner:
                 kwargs.pop("usedatadist")
             for cv in self.dataset.cv_to_use():
                 train_loader = train_loaders[cv] if train_loaders is not None else None
-                self.explainers[cv] = WinITSetAllExplainer(
+                self.explainers[cv] = WinITSetZeroLongExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=train_loader,
+                    args=args,
+                    **kwargs,
+                )
+
+        elif explainer_name == "winitsetcf":
+            train_loaders = (
+                self.dataset.train_loaders
+                if explainer_dict.get("usedatadist") is True
+                else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = WinITSetCFExplainer(
                     self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
@@ -316,6 +342,28 @@ class ExplanationRunner:
                     **explainer_dict,
                 )
 
+        elif explainer_name == "fitsetzero":
+            self.explainers = {}
+            for cv in self.dataset.cv_to_use():
+                self.explainers[cv] = FITSetZeroExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    **explainer_dict,
+                )
+
+        elif explainer_name == "fitsetcf":
+            self.explainers = {}
+            for cv in self.dataset.cv_to_use():
+                self.explainers[cv] = FITSetCFExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    **explainer_dict,
+                )
+
         elif explainer_name == "ig":
             self.explainers = {
                 cv: IGExplainer(self.device) for cv in self.dataset.cv_to_use()
@@ -329,6 +377,12 @@ class ExplanationRunner:
         elif explainer_name == "fo":
             self.explainers = {
                 cv: FOExplainer(self.device, **explainer_dict)
+                for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "fozero":
+            self.explainers = {
+                cv: FOZeroExplainer(self.device, **explainer_dict)
                 for cv in self.dataset.cv_to_use()
             }
 
@@ -577,7 +631,7 @@ class ExplanationRunner:
         df = self._evaluate_importance_with_gt(
             ground_truth_importance, absolutize, aggregate_methods
         )
-        self._plot_boxes(num_to_plot=20, aggregate_methods=aggregate_methods)
+        # self._plot_boxes(num_to_plot=20, aggregate_methods=aggregate_methods)
         return df
 
     def evaluate_performance_drop(
@@ -607,18 +661,26 @@ class ExplanationRunner:
         dfs = {}
         for masker in maskers:
             self.log.info(f"Beginning performance drop for mask={masker.get_name()}")
-            new_xs, new_masks = masker.mask(x_test, mask_test, self.importances)
+            new_xs, new_masks, importance_masks = masker.mask(
+                x_test, mask_test, self.importances
+            )
             new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
             new_masks = {k: torch.from_numpy(v) for k, v in new_masks.items()}
+            importance_masks = {
+                k: torch.from_numpy(v) for k, v in importance_masks.items()
+            }
 
+            new_preds = self.run_inference(new_xs, new_masks, return_all=False)
+
+            # Call _plot_boxes with all required parameters
             self._plot_boxes(
                 num_to_plot=20,
                 aggregate_methods=[masker.aggregate_method],
-                x_other=[new_xs],
-                mask_other=[new_masks],
+                x_other=[new_xs],  # Pass as list
+                mask_other=[new_masks],  # Pass as list
+                importance_mask_other=[importance_masks],  # Pass as list
                 mask_name=masker.get_name(),
             )
-            new_preds = self.run_inference(new_xs, new_masks, return_all=False)
             df = pd.DataFrame()
             for cv in self.dataset.cv_to_use():
                 orig_pred = orig_preds[cv]
@@ -674,43 +736,48 @@ class ExplanationRunner:
         self,
         num_to_plot,
         aggregate_methods: List[str],
-        x_other: Dict[int, torch.Tensor] | None = None,
-        mask_other: Dict[int, torch.Tensor] | None = None,
+        x_other: List[Dict[int, torch.Tensor]] | None = None,
+        mask_other: List[Dict[int, torch.Tensor]] | None = None,
+        importance_mask_other: List[Dict[int, torch.Tensor]] | None = None,
         mask_name: str = "",
     ) -> None:
         """
-        Convenient method to plot and save the boxes for the importances, labels, data and
-        predictions.
-
-        Args:
-            num_to_plot:
-                The number of samples to plot.
-            aggregate_methods:
-                The aggregation method of importances for WinIT.
-            x_other:
-                Other data to plot. In case of Mimic masking, this gives the option to plot the
-                masked data and the masked predictions.
-            mask_name:
-                The name of the mask.
+        Plot comprehensive visualization including original/masked inputs, masks, and importances.
         """
         explainer_name = self.get_explainer_name()
         plotter = BoxPlotter(self.dataset, self.plot_path, num_to_plot, explainer_name)
-        if self.importances is not None:
+
+        if self.importances is not None and x_other is not None:
             for aggregate_method in aggregate_methods:
-                plotter.plot_importances(self.importances, aggregate_method)
+                # Get original data and predictions
+                testset = list(self.dataset.test_loader.dataset)
+                x_test = torch.stack([x[0] for x in testset]).cpu().numpy()
+                y_test = torch.stack([x[1] for x in testset]).cpu().numpy()
+                mask_test = torch.stack([x[2] for x in testset]).cpu().numpy()
+                orig_preds = self.run_inference(
+                    torch.from_numpy(x_test),
+                    torch.from_numpy(mask_test),
+                    return_all=False,
+                )
 
-        plotter.plot_labels()
-        inference = self.run_inference()
-        plotter.plot_x_pred(x=None, preds=inference)
+                # Get new predictions
+                new_preds = self.run_inference(
+                    x_other[0], mask_other[0], return_all=False
+                )
 
-        if isinstance(self.dataset, SimulatedData):
-            ground_truth_importance = self.dataset.load_ground_truth_importance()
-            plotter.plot_ground_truth_importances(ground_truth_importance)
-
-        if x_other is not None:
-            inference_other = self.run_inference(x_other, mask_other)
-            prefix = f"{explainer_name}_{mask_name}_masked"
-            plotter.plot_x_pred(x_other, inference_other, prefix=prefix)
+                plotter.plot_combined_visualization(
+                    self.importances,
+                    aggregate_method,
+                    x_test,
+                    mask_test,
+                    {k: v.cpu().numpy() for k, v in x_other[0].items()},
+                    {k: v.cpu().numpy() for k, v in mask_other[0].items()},
+                    importance_mask_other[0],
+                    orig_preds,
+                    new_preds,
+                    y_test,
+                    mask_name,
+                )
 
     def _evaluate_importance_with_gt(
         self,

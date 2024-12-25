@@ -270,14 +270,74 @@ class FOExplainer(BaseExplainer):
             )
             for i in range(n_features):
                 x_hat = x[:, :, 0 : t + 1].clone()
+                mask_hat = mask[:, :, 0 : t + 1].clone()
                 kl_all = []
                 for _ in range(self.n_samples):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.uniform(-3, +3, size=(len(x),))
                     )
+                    mask_hat[:, i, t] = 0  # Value exists
                     y_hat_t = self.base_model.predict(
                         x_hat,
-                        mask[:, :, : t + 1],
+                        mask_hat,
+                        timesteps[:, : t + 1],
+                        return_all=False,
+                    )
+                    kl = torch.abs(y_hat_t - p_y_t)
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
+                E_kl = np.mean(np.array(kl_all), axis=0)
+                score[:, i, t] = E_kl
+        return score
+
+    def get_name(self):
+        if self.n_samples != 10:
+            return f"fo_sample_{self.n_samples}"
+        return "fo"
+
+
+class FOZeroExplainer(BaseExplainer):
+    """
+    The explainer for feature occlusion. The implementation is simplified from the FIT repository.
+    https://github.com/sanatonek/time_series_explainability/blob/master/TSX/explainers.py
+    """
+
+    def __init__(self, device, n_samples=1, **kwargs):
+        super().__init__(device)
+        self.n_samples = n_samples
+        if len(kwargs) > 0:
+            log = logging.getLogger(FOZeroExplainer.__name__)
+            log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
+
+    def attribute(self, x, mask):
+        self.base_model.eval()
+        self.base_model.zero_grad()
+
+        x = x.to(self.device)
+        batch_size, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+        for t in range(1, t_len):
+            p_y_t = self.base_model.predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                timesteps[:, : t + 1],
+                return_all=False,
+            )
+            for i in range(n_features):
+                x_hat = x[:, :, 0 : t + 1].clone()
+                mask_hat = mask[:, :, 0 : t + 1].clone()
+                kl_all = []
+                for _ in range(self.n_samples):
+                    x_hat[:, i, t] = torch.zeros_like(x_hat[:, i, t])
+                    mask_hat[:, i, t] = 1  # Value doesn't exist
+                    y_hat_t = self.base_model.predict(
+                        x_hat,
+                        mask_hat,
                         timesteps[:, : t + 1],
                         return_all=False,
                     )
@@ -332,14 +392,16 @@ class AFOExplainer(BaseExplainer):
             for i in range(n_features):
                 feature_dist = np.array(self.data_distribution[:, i, :]).reshape(-1)
                 x_hat = x[:, :, 0 : t + 1].clone()
+                mask_hat = mask[:, :, 0 : t + 1].clone()
                 kl_all = []
                 for _ in range(self.n_samples):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.choice(feature_dist, size=(len(x),))
                     ).to(self.device)
+                    mask_hat[:, i, t] = 0  # Value exists
                     y_hat_t = self.base_model.predict(
                         x_hat,
-                        mask[:, :, : t + 1],
+                        mask_hat,
                         timesteps[:, : t + 1],
                         return_all=False,
                     )
