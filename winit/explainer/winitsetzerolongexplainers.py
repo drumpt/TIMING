@@ -17,7 +17,7 @@ from winit.explainer.generator.generator import (
 from winit.explainer.generator.jointgenerator import JointFeatureGenerator
 
 
-class WinITSetExplainer(BaseExplainer):
+class WinITSetZeroLongExplainer(BaseExplainer):
     """
     The explainer for our method WinIT
     """
@@ -29,7 +29,7 @@ class WinITSetExplainer(BaseExplainer):
         data_name: str,
         path: pathlib.Path,
         train_loader: DataLoader | None = None,
-        window_size: int = 10,
+        window_size: int = 48,
         num_samples: int = 1,
         conditional: bool = False,
         joint: bool = False,
@@ -70,7 +70,7 @@ class WinITSetExplainer(BaseExplainer):
                 There should be no additional kwargs.
         """
         super().__init__(device)
-        self.window_size = window_size
+        self.window_size = 48
         self.num_samples = num_samples  # we don't need multiple samples
         assert self.num_samples == 1
         self.num_features = num_features
@@ -90,7 +90,7 @@ class WinITSetExplainer(BaseExplainer):
             self.data_distribution = None
         self.rng = np.random.default_rng(random_state)
 
-        self.log = logging.getLogger(WinITSetExplainer.__name__)
+        self.log = logging.getLogger(WinITSetZeroLongExplainer.__name__)
         if len(kwargs):
             self.log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
 
@@ -109,95 +109,69 @@ class WinITSetExplainer(BaseExplainer):
         return p
 
     def attribute(self, x, mask=None):
-        """
-        Compute the WinIT attribution only for the final timestep prediction.
-
-        Args:
-            x: The input Tensor of shape (batch_size, num_features, num_timesteps)
-            mask: Mask tensor indicating invalid positions
-
-        Returns:
-            The attribution Tensor of shape (batch_size, num_features, num_timesteps)
-            The (i, j, k)-entry is the importance of observation (i, j, k) to the final prediction
-        """
+        """WinIT attribution using zero for counterfactuals"""
         self.base_model.eval()
         self.base_model.zero_grad()
 
         with torch.no_grad():
             tic = time()
-            batch_size, num_features, num_timesteps = x.shape
 
-            # Get prediction for full sequence
-            p_y = self._model_predict(x, mask)
+            batch_size, num_features, num_timesteps = x.shape
             timesteps = (
                 torch.linspace(0, 1, num_timesteps, device=x.device)
                 .unsqueeze(0)
                 .repeat(batch_size, 1)
             )
 
-            # Initialize scores array
-            scores = np.zeros((batch_size, num_features, num_timesteps), dtype=float)
+            scores = []
+            for t in range(num_timesteps):
+                window_size = min(t, self.window_size)
+                if t == 0:
+                    scores.append(np.zeros((batch_size, num_features, self.window_size)))
+                    continue
 
-            # For each timestep in the past
-            for time_past in range(num_timesteps):
-                # Generate counterfactuals
-                counterfactuals = torch.zeros(
-                    num_features,  # feature dimension
-                    self.num_samples,  # number of Monte-Carlo samples
-                    batch_size,  # batch size
-                    num_timesteps - time_past,  # time forward
-                    device=x.device,  # same device as input
+                p_y = self._model_predict(
+                    x[:, :, : t + 1],
+                    mask[:, :, : t + 1],
+                    timesteps[:, : t + 1],
                 )
-
-                # For each feature
-                for f in range(num_features):
-                    # Repeat input for num samples
-                    x_hat_in = x.unsqueeze(0).repeat(
-                        self.num_samples, 1, 1, 1
-                    )  # (ns, bs, f, time)
-
-                    # Replace values with counterfactuals
-                    x_hat_in[:, :, f, time_past:num_timesteps] = counterfactuals[
-                        f, :, :, :
-                    ]
+                iS_array = np.zeros((num_features, window_size, batch_size), dtype=float)
+                
+                for n in range(window_size):
+                    time_past = t - n
                     
-                    mask_hat_in = mask.unsqueeze(0).repeat(self.num_samples, 1, 1, 1)
-                    mask_hat_in[:, :, f, time_past:num_timesteps] = 1  # Doesn't exist
-                    time_hat_in = timesteps.unsqueeze(0).repeat(self.num_samples, 1, 1)
+                    # Instead of generating counterfactuals, directly zero out
+                    for f in range(num_features):
+                        x_hat_in = x[:, :, : t + 1].unsqueeze(0)  # (1, bs, f, time)
+                        mask_hat_in = mask[:, :, : t + 1].unsqueeze(0)
+                        
+                        # Zero out the feature values
+                        x_hat_in[:, :, f, time_past : t + 1] = 0
+                        mask_hat_in[:, :, f, time_past : t + 1] = 1  # Values doesn't exist
 
-                    # Get predictions for counterfactuals
-                    p_y_hat = self._model_predict(
-                        x_hat_in.reshape(
-                            self.num_samples * batch_size, num_features, num_timesteps
-                        ),
-                        mask_hat_in.reshape(
-                            self.num_samples * batch_size, num_features, num_timesteps
-                        ),
-                        time_hat_in.reshape(
-                            self.num_samples * batch_size, num_timesteps
-                        ),
-                    )
+                        time_hat_in = timesteps[:, : t + 1].unsqueeze(0)
 
-                    # Expand original predictions
-                    p_y_exp = (
-                        p_y.unsqueeze(0)
-                        .repeat(self.num_samples, 1, 1)
-                        .reshape(self.num_samples * batch_size, p_y.shape[-1])
-                    )
+                        p_y_hat = self._model_predict(
+                            x_hat_in.reshape(batch_size, num_features, t + 1),
+                            mask_hat_in.reshape(batch_size, num_features, t + 1),
+                            time_hat_in.reshape(batch_size, t + 1),
+                        )
+                        
+                        iSab = self._compute_metric(p_y, p_y_hat).detach().cpu().numpy()
+                        iSab = np.clip(iSab, -1e6, 1e6)
+                        iS_array[f, n, :] = iSab
 
-                    # Compute importance scores
-                    iSab_sample = self._compute_metric(p_y_exp, p_y_hat).reshape(
-                        self.num_samples, batch_size
-                    )
-                    iSab = torch.mean(iSab_sample, dim=0).detach().cpu().numpy()
+                # Compute the I(S) array
+                b = iS_array[:, 1:, :] - iS_array[:, :-1, :]
+                iS_array[:, 1:, :] = b
 
-                    # Clip for numerical stability
-                    iSab = np.clip(iSab, -1e6, 1e6)
-                    scores[:, f, time_past] = iSab
-
-            # Compute the differences for consecutive timesteps
-            scores[:, :, 1:] = scores[:, :, 1:] - scores[:, :, :-1]
-            self.log.info(f"Attribution completed: Time elapsed: {(time() - tic):.4f}")
+                score = iS_array[:, ::-1, :].transpose(2, 0, 1)
+                if score.shape[2] < self.window_size:
+                    score = np.pad(score, ((0, 0), (0, 0), (self.window_size - score.shape[2], 0)))
+                scores.append(score)
+                
+            self.log.info(f"Batch done: Time elapsed: {(time() - tic):.4f}")
+            scores = np.stack(scores).transpose((1, 2, 0, 3))
             return scores
 
     def forward_fill_time(self, array):
@@ -291,7 +265,7 @@ class WinITSetExplainer(BaseExplainer):
 
     def load_generators(self) -> None:
         self._init_generators()
-        self.generators.load_generator()
+        # self.generators.load_generator()
 
     def get_name(self):
         builder = ["winit", "window", str(self.window_size)]

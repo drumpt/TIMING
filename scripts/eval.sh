@@ -88,8 +88,10 @@ test_mam() {
 }
 
 test_all_masking() {
-    explainer_list="fit winit"
-    modeltype_list="mtand"
+    explainer_list="deeplift gradientshap ig fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
+    # explainer_list="ig fo afo fit dynamask winit"
+    modeltype_list="gru mtand"
+    # modeltype_list="gru"
 
     for modeltype in ${modeltype_list}; do
         for explainer in ${explainer_list}; do
@@ -98,6 +100,7 @@ test_all_masking() {
                 --eval \
                 --modeltype ${modeltype} \
                 --explainer ${explainer} \
+                --testbs 100 \
                 --logfile mimic_${explainer}_${modeltype}_all_masking \
                 --resultfile mimic_${explainer}_${modeltype}_all_masking.csv \
                 2>&1 &
@@ -117,8 +120,8 @@ wait_n() {
 
 GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=3
-num_max_jobs=4
+i=0
+num_max_jobs=5
 
 # test_corr_masking
 # test_standard

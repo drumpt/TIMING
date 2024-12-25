@@ -319,19 +319,19 @@ if __name__ == "__main__":
         nargs="+",
         type=str,
         default=["winit"],
-        choices=[
-            "fit",
-            "winit",
-            "winitset",
-            "winitsetall",
-            "ig",
-            "deeplift",
-            "fo",
-            "afo",
-            "gradientshap",
-            "dynamask",
-            "dynamaskset",
-        ],
+        # choices=[
+        #     "fit",
+        #     "winit",
+        #     "winitset",
+        #     "winitsetall",
+        #     "ig",
+        #     "deeplift",
+        #     "fo",
+        #     "afo",
+        #     "gradientshap",
+        #     "dynamask",
+        #     "dynamaskset",
+        # ],
         help="Explainer model",
     )
     parser.add_argument(
@@ -415,7 +415,6 @@ if __name__ == "__main__":
         "--modeltype",
         type=str,
         default="gru",
-        choices=["conv", "lstm", "gru", "mtand", "seft"],
         help="model architecture type for base model",
     )
     parser.add_argument(
