@@ -88,10 +88,11 @@ test_mam() {
 }
 
 test_all_masking() {
-    explainer_list="deeplift gradientshap ig fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
+    explainer_list="deeplift gradientshap ig fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero "
+    # explainer_list="gradientshap_carryforward deeplift_carryforward ig_carryforward"
     # explainer_list="ig fo afo fit dynamask winit"
-    modeltype_list="gru mtand"
-    # modeltype_list="gru"
+    # modeltype_list="gru mtand"
+    modeltype_list="gru"
 
     for modeltype in ${modeltype_list}; do
         for explainer in ${explainer_list}; do
