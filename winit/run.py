@@ -384,6 +384,9 @@ if __name__ == "__main__":
         "--eval", action="store_true", help="run feature importance evalation"
     )
     parser.add_argument(
+        "--cum", action="store_true", help="run feature importance evalation in cumulative setting (only for int k)"
+    )
+    parser.add_argument(
         "--loglevel",
         type=str,
         default="info",
@@ -540,6 +543,10 @@ if __name__ == "__main__":
     train_models = argdict["train"]
     train_gen = argdict["traingen"]
     result_file = argdict["resultfile"]
+    ### cumulative setting
+    cum = argdict["cum"]
+    if cum:
+        argdict["drop"] = argdict["drop"].remove("global")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -621,9 +628,14 @@ if __name__ == "__main__":
                         maskers = params.get_maskers(
                             next(iter(runner.explainers.values()))
                         )
-                        df = runner.evaluate_performance_drop(
-                            maskers, use_last_time_only=True
-                        )
+                        if cum:
+                            df = runner.evaluate_performance_drop_cum(
+                                maskers, use_last_time_only=True
+                            )
+                        else:
+                            df = runner.evaluate_performance_drop(
+                                maskers, use_last_time_only=True
+                            )
                     log.info("Evaluating importance done.")
 
                     # Prepare the result dataframe to be saved.
