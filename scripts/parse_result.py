@@ -162,17 +162,20 @@ dataset = "mimic"
 
 modeltype_list = ["gru", "mtand"]
 modelformat_list = ["gru1layer", "MTAND"]
+# explainer_list = [
+#     "deeplift",
+#     "gradientshap",
+#     "ig",
+#     "fo",
+#     "afo",
+#     "fit",
+#     "dynamask",
+#     "winit",
+#     "winitset",
+#     "dynamaskset",
+# ]
 explainer_list = [
-    "deeplift",
-    "gradientshap",
-    "ig",
-    "fo",
-    "afo",
-    "fit",
-    "dynamask",
-    "winit",
-    "winitset",
-    "dynamaskset",
+    "deeplift", "gradientshap", "ig", "fo", "afo", "fit", "dynamask", "winit", "winitsetzero", "winitsetzerolong", "winitsetcf", "fitsetzero", "fitsetcf", "fozero"
 ]
 
 for modeltype, modelformat in zip(modeltype_list, modelformat_list):
