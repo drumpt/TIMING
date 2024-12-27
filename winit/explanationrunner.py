@@ -749,7 +749,8 @@ class ExplanationRunner:
         dfs = pd.concat(dfs, axis=0)
         dfs.index.name = "mask method"
         return dfs
-    
+
+  
     def evaluate_performance_drop_cum(
         self,
         maskers: List[Masker],
@@ -770,12 +771,28 @@ class ExplanationRunner:
             for i in range(total):
                 masker.top = i + 1
 
-                new_xs = masker.mask(x_test, mask_test, self.importances)
+                new_xs, new_masks, importance_masks = masker.mask(
+                    x_test, mask_test, self.importances
+                )
                 new_xs = {k: torch.from_numpy(v) for k, v in new_xs.items()}
+                new_masks = {k: torch.from_numpy(v) for k, v in new_masks.items()}
+                importance_masks = {
+                    k: torch.from_numpy(v) for k, v in importance_masks.items()
+                }  
     
-                new_preds = self.run_inference(new_xs, return_all=False)
+                new_preds = self.run_inference(new_xs, new_masks, return_all=False)
+                # Call _plot_boxes with all required parameters
+                self._plot_boxes(
+                    num_to_plot=20,
+                    aggregate_methods=[masker.aggregate_method],
+                    x_other=[new_xs],  # Pass as list
+                    mask_other=[new_masks],  # Pass as list
+                    importance_mask_other=[importance_masks],  # Pass as list
+                    mask_name=masker.get_name(),
+                )
                 all_preds.append(new_preds)
-
+                
+                
             for cv in self.dataset.cv_to_use():
                 orig_pred = orig_preds[cv]
                 if use_last_time_only:
