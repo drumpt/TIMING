@@ -104,6 +104,9 @@ def get_metrics_table(basedir, dataset, modeltype, modelformat, explainer_list):
     # Collect results for each explainer
     for explainer in explainer_list:
         csv_dir = f"{basedir}/{modelformat}/{dataset}/{dataset}_{explainer}_{modeltype}_all_masking.csv"
+        import os
+        print(f"{csv_dir=}")
+        print(f"{os.path.exists(csv_dir)=}")
         result_df = get_result(csv_dir)
 
         # Extract metrics for each evaluation type
@@ -160,8 +163,10 @@ def get_metrics_table(basedir, dataset, modeltype, modelformat, explainer_list):
 basedir = "../output"
 dataset = "mimic"
 
-modeltype_list = ["gru", "mtand"]
-modelformat_list = ["gru1layer", "MTAND"]
+# modeltype_list = ["gru", "mtand"]
+modeltype_list = ["seft"]
+# modelformat_list = ["gru1layer", "MTAND"]
+modelformat_list = ["SEFT"]
 # explainer_list = [
 #     "deeplift",
 #     "gradientshap",

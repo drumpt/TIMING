@@ -319,7 +319,6 @@ class mTAND(TorchModel):
         self.nhidden = nhidden
 
         # Enhanced attention with layer norm and dropout
-        self.query = torch.linspace(0, 1, self.num_timesteps).to(device)
         self.att = multiTimeAttention(
             2 * self.feature_size, nhidden, embed_time, num_heads
         )
@@ -342,7 +341,7 @@ class mTAND(TorchModel):
 
     def forward(self, input, mask, timesteps=None, return_all=False):
         input = input.permute(0, 2, 1)  # B x F x T -> B x T x F
-        mask = 1 - mask.permute(0, 2, 1)  # B x F x T -> B x T x F
+        mask = mask.permute(0, 2, 1)  # B x F x T -> B x T x F
         if timesteps is None:
             timesteps = (
                 torch.linspace(0, 1, input.shape[1])
@@ -359,7 +358,7 @@ class mTAND(TorchModel):
         mask = torch.cat((mask, mask), 2)
 
         key = self.learn_time_embedding(timesteps)
-        query = self.learn_time_embedding(self.query.unsqueeze(0))
+        query = self.learn_time_embedding(timesteps)
 
         out = self.att(query, key, x, mask)
         out = out.permute(1, 0, 2)
