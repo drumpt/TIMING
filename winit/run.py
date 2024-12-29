@@ -29,6 +29,11 @@ from winit.explainer.masker import Masker
 from winit.explanationrunner import ExplanationRunner
 from winit.utils import append_df_to_csv
 
+import warnings
+
+warnings.filterwarnings(action='ignore')
+
+# warnings.filterwarnings(action='default')
 
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
@@ -546,7 +551,7 @@ if __name__ == "__main__":
     ### cumulative setting
     cum = argdict["cum"]
     if cum:
-        argdict["drop"] = argdict["drop"].remove("global")
+        argdict["drop"].remove("global")
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
