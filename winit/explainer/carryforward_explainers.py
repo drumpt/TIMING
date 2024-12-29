@@ -211,7 +211,7 @@ class GradientShapCFExplainer(BaseExplainer):
         return "gradientshap_carryforward"
 
 
-class DeepLiftCfExplainer(BaseExplainer):
+class DeepLiftCFExplainer(BaseExplainer):
     """
     The explainer for the DeepLIFT method using zeros as the baseline and captum for the
     implementation.

@@ -1,3 +1,4 @@
+# %%
 import numpy as np
 import pandas as pd
 #import matplotlib.pyplot as plt
@@ -5,8 +6,10 @@ from datetime import timedelta, datetime
 import pickle
 from sklearn.impute import SimpleImputer
 import warnings
+import pickle
 warnings.filterwarnings('ignore')
 
+# %%
 vital_IDs = ['HeartRate' , 'SysBP' , 'DiasBP' , 'MeanBP' , 'RespRate' , 'SpO2' , 'Glucose' ,'Temp']
 lab_IDs = ['ANION GAP', 'ALBUMIN', 'BICARBONATE', 'BILIRUBIN', 'CREATININE', 'CHLORIDE', 'GLUCOSE', 'HEMATOCRIT', 'HEMOGLOBIN'
           'LACTATE', 'MAGNESIUM', 'PHOSPHATE', 'PLATELET', 'POTASSIUM', 'PTT', 'INR', 'PT', 'SODIUM', 'BUN', 'WBC']
@@ -208,3 +211,16 @@ samples = [ (all_data[i,:,:],y[i],nan_map[i,:],masks[i,:,:]) for i in range(len(
 with open('./data/patient_vital_preprocessed_mask.pkl','wb') as f:
         pickle.dump(samples, f)
 
+# %% [markdown]
+# Open samples
+with open('../data/patient_vital_preprocessed_mask.pkl', 'rb') as f:
+    samples = pickle.load(f)
+
+# Reverse masks
+# Reverse masks
+samples = [(sample[0], sample[1], sample[2], 1 - sample[3]) for sample in samples]
+
+# Save samples with reversed masks
+with open('../data/patient_vital_preprocessed_mask_reversed.pkl', 'wb') as f:
+    pickle.dump(samples, f)
+# %%

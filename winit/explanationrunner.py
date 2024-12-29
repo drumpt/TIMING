@@ -601,8 +601,8 @@ class ExplanationRunner:
         for cv, importance_scores in self.importances.items():
             importance_file_name = importance_path / self._get_importance_file_name(cv)
             self.log.info(f"Saving file to {importance_file_name}")
-            with importance_file_name.open("wb") as f:
-                pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
+            # with importance_file_name.open("wb") as f:
+            #     pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
     def load_importance(self):
         """
