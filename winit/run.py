@@ -7,6 +7,9 @@ import pathlib
 import time
 from datetime import datetime
 from typing import Dict, Any, List
+import warnings
+warnings.filterwarnings(action='ignore')
+# warnings.filterwarnings(action='default')
 
 import pandas as pd
 import torch.cuda
@@ -27,13 +30,8 @@ from winit.explainer.explainers import (
 )
 from winit.explainer.masker import Masker
 from winit.explanationrunner import ExplanationRunner
-from winit.utils import append_df_to_csv
+from winit.utils import append_df_to_csv, set_seed
 
-import warnings
-
-warnings.filterwarnings(action='ignore')
-
-# warnings.filterwarnings(action='default')
 
 class Params:
     def __init__(self, argdict: Dict[str, Any]):
@@ -542,6 +540,7 @@ if __name__ == "__main__":
     train_models = argdict["train"]
     train_gen = argdict["traingen"]
     result_file = argdict["resultfile"]
+    explainer_seed = argdict["explainerseed"]
     ### cumulative setting
     cum = argdict["cum"]
     if cum:
@@ -595,6 +594,7 @@ if __name__ == "__main__":
         for explainer_name, explainer_dict_list in all_explainer_dict.items():
             for explainer_dict in explainer_dict_list:
                 # generate feature importance
+                set_seed(explainer_seed)
                 runner.clean_up(
                     clean_importance=True, clean_explainer=True, clean_model=False
                 )
