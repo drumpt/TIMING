@@ -25,6 +25,8 @@ from winit.explainer.explainers import (
     FOExplainer,
     FOZeroExplainer,
     AFOExplainer,
+    AFOGenExplainer,
+    AFOEnsembleExplainer,
     GradientShapExplainer,
     MockExplainer,
 )
@@ -410,6 +412,34 @@ class ExplanationRunner:
                 for cv in self.dataset.cv_to_use()
             }
 
+        elif explainer_name == "afogen":
+            self.explainers = {
+                cv: AFOGenExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=self.dataset.train_loaders[cv],
+                    args=args,
+                    **explainer_dict,
+                )
+                for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "afoensemble":
+            self.explainers = {
+                cv: AFOEnsembleExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=self.dataset.train_loaders[cv],
+                    args=args,
+                    **explainer_dict,
+                )
+                for cv in self.dataset.cv_to_use()
+            }
+
         elif explainer_name == "gradientshap":
             self.explainers = {
                 cv: GradientShapExplainer(self.device)
@@ -430,17 +460,15 @@ class ExplanationRunner:
                 cv: DynamaskSetExplainer(self.device, **explainer_dict)
                 for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "ig_carryforward":
             self.explainers = {
-                cv: IGCFExplainer(self.device) 
-                for cv in self.dataset.cv_to_use()
+                cv: IGCFExplainer(self.device) for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift_carryforward":
             self.explainers = {
-                cv: DeepLiftCFExplainer(self.device) 
-                for cv in self.dataset.cv_to_use()
+                cv: DeepLiftCFExplainer(self.device) for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_carryforward":
@@ -449,33 +477,41 @@ class ExplanationRunner:
                 for cv in self.dataset.cv_to_use()
             }
 
-
         elif explainer_name == "ig_forecast":
             self.explainers = {
-                cv: IGFCExplainer(self.device,
+                cv: IGFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "deeplift_forecast":
             print(explainer_dict)
             self.explainers = {
-                cv: DeepLiftFCExplainer(self.device,
+                cv: DeepLiftFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_forecast":
             self.explainers = {
-                cv: GradientShapFCExplainer(self.device,
+                cv: GradientShapFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
 
         else:
