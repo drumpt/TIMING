@@ -276,7 +276,7 @@ class FOExplainer(BaseExplainer):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.uniform(-3, +3, size=(len(x),))
                     )
-                    mask_hat[:, i, t] = 0  # Value exists
+                    mask_hat[:, i, t] = 1  # Value exists
                     y_hat_t = self.base_model.predict(
                         x_hat,
                         mask_hat,
@@ -334,7 +334,7 @@ class FOZeroExplainer(BaseExplainer):
                 kl_all = []
                 for _ in range(self.n_samples):
                     x_hat[:, i, t] = torch.zeros_like(x_hat[:, i, t])
-                    mask_hat[:, i, t] = 1  # Value doesn't exist
+                    mask_hat[:, i, t] = 0  # Value doesn't exist
                     y_hat_t = self.base_model.predict(
                         x_hat,
                         mask_hat,
@@ -398,7 +398,7 @@ class AFOExplainer(BaseExplainer):
                     x_hat[:, i, t] = torch.Tensor(
                         np.random.choice(feature_dist, size=(len(x),))
                     ).to(self.device)
-                    mask_hat[:, i, t] = 0  # Value exists
+                    mask_hat[:, i, t] = 1  # Value exists
                     y_hat_t = self.base_model.predict(
                         x_hat,
                         mask_hat,

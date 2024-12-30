@@ -44,9 +44,7 @@ class BoxPlotter:
         testset = list(dataset.test_loader.dataset)
         self.x_test = torch.stack([x[0] for x in testset]).cpu().numpy()
         self.y_test = torch.stack([x[1] for x in testset]).cpu().numpy()
-        self.mask_test = (
-            torch.stack([x[2] for x in testset]).cpu().numpy()
-        )  # Added mask storage
+        self.mask_test = torch.stack([x[2] for x in testset]).cpu().numpy()
         self.plot_path.mkdir(parents=True, exist_ok=True)
 
     def plot_combined_visualization(

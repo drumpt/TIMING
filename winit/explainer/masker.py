@@ -127,7 +127,7 @@ class Masker:
                         )
                         masked[sample_id, feature_id, time_id:end_time] = True
                         start_masked[sample_id, feature_id, time_id] = True
-                        new_mask[sample_id, feature_id, time_id:end_time] = 1
+                        new_mask[sample_id, feature_id, time_id:end_time] = 0
                 else:
                     num_feature_time = new_x.shape[1] * (new_x.shape[2] - self.min_time)
                     for sample_id in range(new_x.shape[0]):
@@ -156,7 +156,7 @@ class Masker:
                             )
                             masked[sample_id, feature_id, time_id:end_ts] = True
                             start_masked[sample_id, feature_id, time_id] = True
-                            new_mask[sample_id, feature_id, time_id:end_ts] = 1
+                            new_mask[sample_id, feature_id, time_id:end_ts] = 0
                             num_masked_total += end_ts - time_id
                             num_masked += 1
                             
@@ -174,7 +174,7 @@ class Masker:
                             x[f, min_t_feat[f] + self.min_time:] = x[f, min_t_feat[f] + self.min_time - 1]
                             masked[i, f, min_t_feat[f] + self.min_time:] = True
                             start_masked[i, f, min_t_feat[f] + self.min_time] = True
-                            new_mask[i, f, min_t_feat[f] + self.min_time:] = 1
+                            new_mask[i, f, min_t_feat[f] + self.min_time:] = 0
                     else:
                         for _ in range(self.top):
                             imp = np.unravel_index(importance_score[i, :, self.min_time:].argmax(),
@@ -183,7 +183,7 @@ class Masker:
                             x[imp[0], imp[1] + self.min_time:] = x[imp[0], imp[1] + self.min_time - 1]
                             masked[i, imp[0], imp[1] + self.min_time:] = True
                             start_masked[i, imp[0], imp[1] + self.min_time] = True
-                            new_mask[i, imp[0], imp[1] + self.min_time:] = 1
+                            new_mask[i, imp[0], imp[1] + self.min_time:] = 0
 
             start_masked_count[cv] = np.sum(start_masked, axis=0)
             all_masked_count[cv] = np.sum(masked, axis=0)
@@ -238,7 +238,7 @@ class Masker:
                     last_real_value = None
 
                     for t in range(num_times):
-                        if mask_test[b, f, t] == 0:  # Real value
+                        if mask_test[b, f, t] == 1:  # Real value
                             if current_group:
                                 if last_real_value is not None:  # Store last real value with group
                                     groups.append((current_group, last_real_value))
@@ -280,7 +280,7 @@ class Masker:
                             new_x[b, feature_idx, start_time:end_time] = carry_value
                             
                             # Update masks
-                            new_mask[b, feature_idx, start_time:end_time] = 1
+                            new_mask[b, feature_idx, start_time:end_time] = 0
                             masked[b, feature_idx, start_time:end_time] = True
                             start_masked[b, feature_idx, start_time] = True
                             num_masked_total += end_time - start_time

@@ -324,19 +324,6 @@ if __name__ == "__main__":
         nargs="+",
         type=str,
         default=["winit"],
-        # choices=[
-        #     "fit",
-        #     "winit",
-        #     "winitset",
-        #     "winitsetall",
-        #     "ig",
-        #     "deeplift",
-        #     "fo",
-        #     "afo",
-        #     "gradientshap",
-        #     "dynamask",
-        #     "dynamaskset",
-        # ],
         help="Explainer model",
     )
     parser.add_argument(

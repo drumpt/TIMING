@@ -6,14 +6,14 @@ train_gru() {
 }
 
 train_set_functions() {
-    # modeltype_list="mtand seft"
-    modeltype_list="mtand"
+    modeltype_list="mtand seft"
+    # modeltype_list="mtand"
     for modeltype in ${modeltype_list}; do
         CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
             --data mimic \
             --modeltype ${modeltype} \
             --train \
-            --lr 0.001 \
+            --lr 0.01 \
             --skipexplain \
             --outpath output/output_${modeltype}_reversed \
             --ckptpath ckpt/ckpt_${modeltype}_reversed \

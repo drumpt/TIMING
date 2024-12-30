@@ -534,7 +534,7 @@ class SeFT(TorchModel):
 
     def forward(self, input, mask, timesteps=None, return_all=False):
         input = input.permute(0, 2, 1)  # B x T x F
-        mask = 1 - mask.permute(0, 2, 1)  # B x T x F
+        mask = mask.permute(0, 2, 1)  # B x T x F
 
         batch_size, seq_len, _ = input.shape
         device = input.device

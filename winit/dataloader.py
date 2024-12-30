@@ -199,7 +199,7 @@ class Mimic(WinITDataset):
         batch_size: int = 100,
         testbs: int | None = None,
         deterministic: bool = False,
-        file_name: str = "patient_vital_preprocessed_mask.pkl",
+        file_name: str = "patient_vital_preprocessed_mask_reversed.pkl",
         cv_to_use: List[int] | int | None = None,
         seed: int | None = 1234,
     ):

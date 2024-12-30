@@ -13,8 +13,10 @@ from sklearn import metrics
 from torch.utils.data import DataLoader
 
 from winit.dataloader import WinITDataset, SimulatedData
-from winit.explainer.dynamaskexplainer import DynamaskExplainer
-from winit.explainer.dynamasksetexplainer import DynamaskSetExplainer
+from winit.explainer.dynamaskexplainer import (
+    DynamaskExplainer,
+    DynamaskSetExplainer,
+)
 from winit.explainer.masker import Masker
 from winit.explainer.explainers import (
     BaseExplainer,
@@ -26,15 +28,23 @@ from winit.explainer.explainers import (
     GradientShapExplainer,
     MockExplainer,
 )
-from winit.explainer.fitexplainers import FITExplainer
-from winit.explainer.fitsetzeroexplainers import FITSetZeroExplainer
-from winit.explainer.fitsetcfexplainers import FITSetCFExplainer
 from winit.explainer.generator.generator import GeneratorTrainingResults
-from winit.explainer.winitexplainers import WinITExplainer
-from winit.explainer.winitsetzeroexplainers import WinITSetZeroExplainer
-from winit.explainer.winitsetzerolongexplainers import WinITSetZeroLongExplainer
-from winit.explainer.winitsetcfexplainers import WinITSetCFExplainer
-from winit.explainer.carryforward_explainers import GradientShapCFExplainer, DeepLiftCFExplainer, IGCFExplainer
+from winit.explainer.fitexplainers import (
+    FITExplainer,
+    FITSetZeroExplainer,
+    FITSetCFExplainer,
+)
+from winit.explainer.winitexplainers import (
+    WinITExplainer,
+    WinITSetZeroExplainer,
+    WinITSetZeroLongExplainer,
+    WinITSetCFExplainer,
+)
+from winit.explainer.carryforward_explainers import (
+    GradientShapCFExplainer,
+    DeepLiftCFExplainer,
+    IGCFExplainer,
+)
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
 from winit.utils import aggregate_scores
@@ -415,7 +425,7 @@ class ExplanationRunner:
                 cv: DynamaskSetExplainer(self.device, **explainer_dict)
                 for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "ig_carryforward":
             self.explainers = {
                 cv: IGCFExplainer(self.device) for cv in self.dataset.cv_to_use()
@@ -425,13 +435,12 @@ class ExplanationRunner:
             self.explainers = {
                 cv: DeepLiftCFExplainer(self.device) for cv in self.dataset.cv_to_use()
             }
-        
+
         elif explainer_name == "gradientshap_carryforward":
             self.explainers = {
                 cv: GradientShapCFExplainer(self.device)
                 for cv in self.dataset.cv_to_use()
             }
-
 
         else:
             raise ValueError("%s explainer not defined!" % explainer_name)
@@ -595,14 +604,14 @@ class ExplanationRunner:
         """
         if self.importances is None:
             return
-        importance_path = self._get_importance_path()
-        importance_path.mkdir(parents=True, exist_ok=True)
+        # importance_path = self._get_importance_path()
+        # importance_path.mkdir(parents=True, exist_ok=True)
 
-        for cv, importance_scores in self.importances.items():
-            importance_file_name = importance_path / self._get_importance_file_name(cv)
-            self.log.info(f"Saving file to {importance_file_name}")
-            # with importance_file_name.open("wb") as f:
-            #     pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
+        # for cv, importance_scores in self.importances.items():
+        #     importance_file_name = importance_path / self._get_importance_file_name(cv)
+        #     self.log.info(f"Saving file to {importance_file_name}")
+        #     with importance_file_name.open("wb") as f:
+        #         pkl.dump(importance_scores, f, protocol=pkl.HIGHEST_PROTOCOL)
 
     def load_importance(self):
         """
@@ -644,7 +653,14 @@ class ExplanationRunner:
 
         absolutize = isinstance(
             next(iter(self.explainers.values())),
-            (DeepLiftExplainer, IGExplainer, GradientShapExplainer, DeepLiftCFExplainer, IGCFExplainer, GradientShapCFExplainer),
+            (
+                DeepLiftExplainer,
+                IGExplainer,
+                GradientShapExplainer,
+                DeepLiftCFExplainer,
+                IGCFExplainer,
+                GradientShapCFExplainer,
+            ),
         )
         df = self._evaluate_importance_with_gt(
             ground_truth_importance, absolutize, aggregate_methods
@@ -750,7 +766,6 @@ class ExplanationRunner:
         dfs.index.name = "mask method"
         return dfs
 
-  
     def evaluate_performance_drop_cum(
         self,
         maskers: List[Masker],
@@ -764,9 +779,11 @@ class ExplanationRunner:
 
         dfs = {}
         for masker in maskers:
-            self.log.info(f"Beginning performance drop for mask={masker.get_name()} in cumulative setting")
+            self.log.info(
+                f"Beginning performance drop for mask={masker.get_name()} in cumulative setting"
+            )
             total = masker.top
-            
+
             all_preds = []
             for i in range(total):
                 masker.top = i + 1
@@ -778,8 +795,8 @@ class ExplanationRunner:
                 new_masks = {k: torch.from_numpy(v) for k, v in new_masks.items()}
                 importance_masks = {
                     k: torch.from_numpy(v) for k, v in importance_masks.items()
-                }  
-    
+                }
+
                 new_preds = self.run_inference(new_xs, new_masks, return_all=False)
                 # Call _plot_boxes with all required parameters
                 self._plot_boxes(
@@ -791,8 +808,7 @@ class ExplanationRunner:
                     mask_name=masker.get_name(),
                 )
                 all_preds.append(new_preds)
-                
-                
+
             for cv in self.dataset.cv_to_use():
                 orig_pred = orig_preds[cv]
                 if use_last_time_only:
@@ -803,36 +819,40 @@ class ExplanationRunner:
                 y_test = y_test.reshape(-1)
 
                 original_auc = metrics.roc_auc_score(y_test, orig_pred, average="macro")
-                
+
                 before_pred = orig_pred
                 before_auc = original_auc
-                
-                pred_change_list = [] 
+
+                pred_change_list = []
                 auc_change_list = []
-                
+
                 df = pd.DataFrame()
-            
+
                 for i in range(total):
                     current_pred = all_preds[i][cv]
                     if use_last_time_only:
                         current_pred = current_pred[:, -1]
-                        
+
                     current_pred = current_pred.reshape(-1)
-                    current_auc = metrics.roc_auc_score(y_test, current_pred, average="macro")
+                    current_auc = metrics.roc_auc_score(
+                        y_test, current_pred, average="macro"
+                    )
 
                     avg_pred_diff = np.abs(before_pred - current_pred).mean().item()
                     auc_drop = before_auc - current_auc
-                    avg_mask_count = (masker.all_masked_count[cv].sum() / len(x_test)).item()
-                            
-                    before_pred = current_pred 
+                    avg_mask_count = (
+                        masker.all_masked_count[cv].sum() / len(x_test)
+                    ).item()
+
+                    before_pred = current_pred
                     before_auc = current_auc
 
                     pred_change_list.append(avg_pred_diff)
                     auc_change_list.append(auc_drop)
-                    
+
                 pred_change_list = np.array(pred_change_list)
                 auc_change_list = np.array(auc_change_list)
-                
+
                 cum_array_path = self._get_cum_array_path()
                 cum_array_path.mkdir(parents=True, exist_ok=True)
                 array_prefix = f"{self.get_explainer_name()}_{masker.get_name()}_"
@@ -844,20 +864,20 @@ class ExplanationRunner:
                     cum_array_path / f"{array_prefix}_auc_cv_{cv}",
                     auc_change_list,
                 )
-                
+
                 cum_pred_diff = np.sum(pred_change_list)
                 cum_drop = np.sum(np.abs(auc_change_list))
-                
+
                 avg_pred_diff = np.abs(orig_pred - before_pred).mean().item()
                 auc_drop = original_auc - before_auc
-                
+
                 df[cv] = pd.Series(
                     {
                         "auc_drop": auc_drop,
                         "avg_pred_diff": avg_pred_diff,
                         "avg_masked_count": avg_mask_count,
                         "cum_pred_diff": cum_pred_diff,
-                        "cum_drop": cum_drop
+                        "cum_drop": cum_drop,
                     }
                 )
             df = df.transpose()
@@ -865,9 +885,8 @@ class ExplanationRunner:
             dfs[masker.get_name()] = df
         dfs = pd.concat(dfs, axis=0)
         dfs.index.name = "mask method"
-        
-        return dfs
 
+        return dfs
 
     def _plot_boxes(
         self,
