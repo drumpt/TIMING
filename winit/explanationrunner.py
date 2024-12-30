@@ -45,6 +45,11 @@ from winit.explainer.carryforward_explainers import (
     DeepLiftCFExplainer,
     IGCFExplainer,
 )
+from winit.explainer.forecast_explainers import (
+    GradientShapFCExplainer,
+    DeepLiftFCExplainer,
+    IGFCExplainer,
+)
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
 from winit.utils import aggregate_scores
@@ -425,21 +430,52 @@ class ExplanationRunner:
                 cv: DynamaskSetExplainer(self.device, **explainer_dict)
                 for cv in self.dataset.cv_to_use()
             }
-
+            
         elif explainer_name == "ig_carryforward":
             self.explainers = {
-                cv: IGCFExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: IGCFExplainer(self.device) 
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift_carryforward":
             self.explainers = {
-                cv: DeepLiftCFExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: DeepLiftCFExplainer(self.device) 
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_carryforward":
             self.explainers = {
                 cv: GradientShapCFExplainer(self.device)
                 for cv in self.dataset.cv_to_use()
+            }
+
+
+        elif explainer_name == "ig_forecast":
+            self.explainers = {
+                cv: IGFCExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+            }
+            
+        elif explainer_name == "deeplift_forecast":
+            print(explainer_dict)
+            self.explainers = {
+                cv: DeepLiftFCExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "gradientshap_forecast":
+            self.explainers = {
+                cv: GradientShapFCExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
             }
 
         else:
@@ -463,7 +499,6 @@ class ExplanationRunner:
             raise RuntimeError(
                 "explainer is not initialized. Call get_explainer to initialize."
             )
-
         results = {}
         generator_array_path = self._get_generator_array_path()
         generator_array_path.mkdir(parents=True, exist_ok=True)

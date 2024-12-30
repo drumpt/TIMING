@@ -9,6 +9,7 @@ import torch
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.models import TorchModel
 from winit.utils import resolve_device
+from winit.explainer.generator.forecastor import Forecastor
 
 from captum.attr import IntegratedGradients, DeepLift
 
@@ -44,6 +45,20 @@ class BaseExplainer(abc.ABC):
             be one dimension greater than x if there is aggregation needed.
 
         """
+        
+    def _init_generators(self):
+        gen_path = self.path / "forecast_generator"
+        gen_path.mkdir(parents=True, exist_ok=True)
+        self.generator = Forecastor(
+            self.base_model,
+            self.forecastor,
+            self.feature_size,
+            self.device,
+            gen_path,
+            latent_size=self.feature_size * 3,
+            num_layers=2,
+            data=self.data_name,
+        )
 
     def train_generators(
         self, train_loader, valid_loader, num_epochs=300
@@ -64,7 +79,10 @@ class BaseExplainer(abc.ABC):
             training curves.
 
         """
-        return None
+        self._init_generators()
+        return self.generator.train_generator(
+            train_loader, valid_loader, num_epochs, lr=0.001, weight_decay=0
+        )
 
     def test_generators(self, test_loader) -> float | None:
         """
@@ -79,13 +97,17 @@ class BaseExplainer(abc.ABC):
             The test result (MSE) for the generator, if applicable.
 
         """
-        return None
+        test_loss = self.generator.test_generator(test_loader)
+        self.log.info(f"Joint Generator Test MSE Loss: {test_loss}")
+        return test_loss
 
     def load_generators(self) -> None:
         """
         If the explainer or attribution method needs a generator, this will load the generator from
         the disk.
         """
+        self._init_generators()
+        self.generator.load_generator()
 
     def set_model(self, model, set_eval=True) -> None:
         """
@@ -179,15 +201,19 @@ def gradient_shap(model, inputs, baselines, mask, n_samples=50):
     attributions = grads * (inputs - baselines)
     return attributions
 
-class GradientShapCFExplainer(BaseExplainer):
+class GradientShapFCExplainer(BaseExplainer):
     """
     The explainer for gradient shap using zeros as the baseline and the captum
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, feature_size, data_name, path, forecastor):
         super().__init__(device)
         self.explainer = None
+        self.feature_size = feature_size
+        self.data_name = data_name
+        self.path = path
+        self.forecastor = forecastor
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -216,18 +242,21 @@ class GradientShapCFExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "gradientshap_carryforward"
+        return "gradientshap_forecast"
 
 
-class DeepLiftCFExplainer(BaseExplainer):
+class DeepLiftFCExplainer(BaseExplainer):
     """
     The explainer for the DeepLIFT method using zeros as the baseline and captum for the
     implementation.
     """
-
-    def __init__(self, device):
+    def __init__(self, device, feature_size, data_name, path, forecastor):
         super().__init__(device)
         self.explainer = None
+        self.feature_size = feature_size
+        self.data_name = data_name
+        self.path = path
+        self.forecastor = forecastor
 
     def set_model(self, model, set_eval=True):
         super().set_model(model)
@@ -251,18 +280,22 @@ class DeepLiftCFExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "deeplift_carryforward"
+        return "deeplift_forecast"
     
     
-class IGCFExplainer(BaseExplainer):
+class IGFCExplainer(BaseExplainer):
     """
     The explainer for integrated gradients using zeros as the baseline and the captum
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, feature_size, data_name, path, forecastor):
         super().__init__(device)
         self.explainer = None
+        self.feature_size = feature_size
+        self.data_name = data_name
+        self.path = path
+        self.forecastor = forecastor
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -286,4 +319,4 @@ class IGCFExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "ig_carryforward"
+        return "ig_forecast"

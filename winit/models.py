@@ -55,6 +55,22 @@ class TorchModel(nn.Module, abc.ABC):
             A tensor of shape (num_samples, num_states, num_times) if return_all is True. Otherwise,
             a tensor of shape (num_samples, num_states) is returned.
         """
+    
+    @abc.abstractmethod
+    def encoding(self, input, mask=None, timesteps=None, return_all=True):
+        """
+        Only get encoding of time series. (Different for each model without CNN)
+
+        Args:
+            input:
+                Shape = (num_samples, num_features, num_times)
+            return_all:
+                True if we want to get the hidden state of the model only at the last timestep.
+
+        Returns:
+            A tensor of shape (num_samples, num_times, hidden_size) if return_all is True. Otherwise,
+            a tensor of shape (num_samples, hidden_size) is returned.
+        """
 
     def predict(self, input, mask=None, timesteps=None, return_all=True):
         """
@@ -166,6 +182,8 @@ class StateClassifier(TorchModel):
             self.rnn = nn.LSTM(
                 feature_size, self.hidden_size, num_layers=self.num_layers
             ).to(self.device)
+            
+        self.encoded_hidden_size = self.regres_in_size
 
         self.regressor = nn.Sequential(
             nn.BatchNorm1d(num_features=self.regres_in_size),
@@ -224,6 +242,44 @@ class StateClassifier(TorchModel):
         else:
             encoding = encoding[-1, :, :]  # encoding.shape (num_samples, num_hidden)
             return self.regressor(encoding)  # (num_samples, num_states)
+        
+    def encoding(self, input, mask=None, timesteps=None, return_all=True, past_state=None):
+        """
+        Only get encoding of time series. (Different for each model without CNN)
+
+        Args:
+            input:
+                Shape = (num_samples, num_features, num_times)
+            return_all:
+                True if we want to get the hidden state of the model only at the last timestep.
+
+        Returns:
+            A tensor of shape (num_samples, num_times, hidden_size) if return_all is True. Otherwise,
+            a tensor of shape (num_samples, hidden_size) is returned.
+        """
+        num_samples, num_features, num_times = input.shape
+        input = input.permute(2, 0, 1).to(self.device)
+        # input.shape (num_times, num_samples, num_features)
+        self.rnn.to(self.device)
+        self.regressor.to(self.device)
+        if past_state is None:
+            #  Size of hidden states: (num_layers, num_samples, hidden_size)
+            past_state = torch.zeros(
+                [self.num_layers, input.shape[1], self.hidden_size]
+            ).to(self.device)
+        if self.rnn_type == "GRU":
+            all_encodings, encoding = self.rnn(input, past_state)
+            # all_encodings.shape = (num_times, num_samples, num_hidden)
+            # encoding.shape = (num_layers, num_samples, num_hidden)
+        else:
+            all_encodings, (encoding, state) = self.rnn(input, (past_state, past_state))
+
+        if return_all:
+            encoding = all_encodings.permute(1, 0, 2) # (num_samples, num_times, hidden_size)
+            return encoding
+        else:
+            encoding = encoding[-1, :, :]  # encoding.shape (num_samples, num_hidden)
+            return encoding
 
 
 class multiTimeAttention(nn.Module):
@@ -317,6 +373,8 @@ class mTAND(TorchModel):
         self.freq = freq
         self.embed_time = embed_time
         self.nhidden = nhidden
+        
+        self.encoded_hidden_size = nhidden
 
         # Enhanced attention with layer norm and dropout
         self.att = multiTimeAttention(
@@ -370,6 +428,39 @@ class mTAND(TorchModel):
             out = out.squeeze(0)
         out = self.classifier(out)
         return out
+    
+    def encoding(self, input, mask=None, timesteps=None, return_all=True):
+        input = input.permute(0, 2, 1)  # B x F x T -> B x T x F
+        mask = mask.permute(0, 2, 1)  # B x F x T -> B x T x F
+        if timesteps is None:
+            timesteps = (
+                torch.linspace(0, 1, input.shape[1])
+                .unsqueeze(0)
+                .repeat(input.size(0), 1)
+                .to(input.device)
+            )
+        timesteps = timesteps.unsqueeze(-1)
+
+        input = input * (mask > 0).float()  # Zeroize masked values
+
+        x = torch.cat((input, mask), 2)
+        mask = x[:, :, self.feature_size :]
+        mask = torch.cat((mask, mask), 2)
+
+        key = self.learn_time_embedding(timesteps)
+        query = self.learn_time_embedding(timesteps)
+
+        out = self.att(query, key, x, mask)
+        out = out.permute(1, 0, 2)
+        if return_all:
+            out, _ = self.enc(out)
+            return out.permute(1, 0, 2)
+        else:
+            _, out = self.enc(out)
+            print(out.shape)
+            raise RuntimeError
+            out = out.squeeze(0)
+            return out
 
 
 class PositionalEncoding(nn.Module):
@@ -504,6 +595,8 @@ class SeFT(TorchModel):
         self.pos_dim = 10
         self.num_heads = 4
         self.dot_prod_dim = 64
+        
+        self.encoded_hidden_size = nhid * self.num_heads
 
         # Time encoding
         self.pos_encoder = PositionalEncoding(n_dim=self.pos_dim)
@@ -659,3 +752,127 @@ class SeFT(TorchModel):
             output = self.output_net(combined_features)
 
         return output
+
+    def encoding(self, input, mask=None, timesteps=None, return_all=True):
+        input = input.permute(0, 2, 1)  # B x T x F
+        mask = mask.permute(0, 2, 1)  # B x T x F
+
+        batch_size, seq_len, _ = input.shape
+        device = input.device
+
+        # Create time values and reshape input/mask
+        values = input  # [B, T, F]
+        masks = mask  # [B, T, F]
+
+        if timesteps is None:
+            times = torch.linspace(0, 1, seq_len, device=device)  # [T]
+            times = times.unsqueeze(0).repeat(batch_size, 1)  # [B, T]
+        else:
+            times = timesteps
+
+        # Reshape values and masks
+        values_reshaped = values.reshape(batch_size, -1)  # [B, T*F]
+        masks_reshaped = masks.reshape(batch_size, -1)  # [B, T*F]
+
+        # Now repeat times for each feature
+        times_repeated = times.unsqueeze(-1).repeat(
+            1, 1, self.feature_size
+        )  # [B, T, F]
+        times_reshaped = times_repeated.reshape(batch_size, -1)  # [B, T*F]
+
+        # Apply masking
+        values_masked = values_reshaped * (masks_reshaped > 0).float()
+        times_masked = times_reshaped * (masks_reshaped > 0).float()
+
+        # Get time encoding using masked times
+        times_for_encoding = times_masked.reshape(
+            batch_size, seq_len, self.feature_size
+        )  # [B, T, F]
+        transformed_times = self.pos_encoder(
+            times_for_encoding.unsqueeze(-1)
+        )  # [B, T, F, pos_dim]
+
+        # One-hot encode modalities
+        modality_encoding = F.one_hot(
+            torch.arange(self.feature_size, device=device),
+            num_classes=self.feature_size,
+        )  # [F, F]
+        modality_encoding = (
+            modality_encoding.unsqueeze(0)
+            .unsqueeze(0)
+            .expand(batch_size, seq_len, -1, -1)
+        )  # [B, T, F, F]
+
+        # Prepare values for concatenation
+        values_for_concat = values_masked.reshape(
+            batch_size, seq_len, self.feature_size, 1
+        )  # [B, T, F, 1]
+
+        # Combine features
+        combined_values = torch.cat(
+            [
+                transformed_times,  # [B, T, F, pos_dim]
+                values_for_concat,  # [B, T, F, 1]
+                modality_encoding,  # [B, T, F, F]
+            ],
+            dim=-1,
+        )
+
+        # Reshape to set format
+        combined_values = combined_values.reshape(
+            batch_size, seq_len * self.feature_size, -1
+        )
+
+        attention_mask = masks_reshaped > 0
+
+        # Apply attention
+        attention_weights, encoded = self.attention(combined_values, attention_mask)
+        encoded_expanded = encoded.unsqueeze(1)  # [B, 1, T*F, hidden]
+
+        if return_all:
+            # Create time step masks for all steps at once [T, T*F]
+            time_masks = torch.zeros(
+                seq_len, seq_len * self.feature_size, device=device
+            )
+            feature_blocks = torch.arange(seq_len, device=device) * self.feature_size
+            time_masks.scatter_(
+                1,
+                feature_blocks.unsqueeze(1).expand(-1, self.feature_size)
+                + torch.arange(self.feature_size, device=device),
+                1.0,
+            )
+
+            # Expand masks for batch and heads
+            time_masks = time_masks.unsqueeze(0).unsqueeze(1)  # [1, 1, T, T*F]
+            time_masks = time_masks.expand(
+                batch_size, self.num_heads, -1, -1
+            )  # [B, h, T, T*F]
+
+            # Apply masked attention for all time steps at once
+            attention_expanded = attention_weights.unsqueeze(2)  # [B, h, 1, T*F]
+            masked_attention = attention_expanded * time_masks  # [B, h, T, T*F]
+
+            # Process all time steps in parallel
+            encoded_expanded = encoded.unsqueeze(1).unsqueeze(
+                2
+            )  # [B, 1, 1, T*F, hidden]
+            time_attended = (
+                masked_attention.unsqueeze(-1) * encoded_expanded
+            )  # [B, h, T, T*F, hidden]
+            time_features = time_attended.sum(dim=3)  # [B, h, T, hidden]
+
+            # Prepare features for output network
+            time_combined = time_features.permute(0, 2, 1, 3)  # [B, T, h, hidden]
+            
+            encoding = time_combined.reshape(batch_size, seq_len, -1)
+        else:
+            # Single prediction using all time steps
+            attended = encoded_expanded * attention_weights.unsqueeze(
+                -1
+            )  # [B, h, T*F, hidden]
+            head_features = attended.sum(dim=2)  # [B, h, hidden]
+            combined_features = head_features.reshape(batch_size, -1)  # [B, h*hidden]
+            
+            encoding = combined_features
+
+        return encoding

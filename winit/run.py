@@ -158,6 +158,9 @@ class Params:
                     explainer_dict["n_samples"] = nsamples
                 if explainer == "fit":
                     generator_dict["fit"] = [explainer_dict]
+                if "forecast" in explainer:
+                    explainer_dict["forecastor"] = self.argdict["forecastor"]
+                    generator_dict[explainer] = [explainer_dict]
                 all_explainer_dict[explainer] = [explainer_dict]
         self._all_explainer_dict = all_explainer_dict
         self._generators_to_train = generator_dict
@@ -488,6 +491,16 @@ if __name__ == "__main__":
         help="Number of samples in generating masked features in  WinIT",
     )
     parser.add_argument("--top_p", type=float, default=0)
+    
+    # carryforward_args
+
+    parser.add_argument(
+        "--forecastor",
+        type=str,
+        choices=["linear", "mlp"],
+        default="linear",
+        help="WinIT metrics for divergence of distributions",
+    )
 
     # eval args
     parser.add_argument(
@@ -581,10 +594,13 @@ if __name__ == "__main__":
         if train_gen:
             generators_to_train = params.generators_to_train
             for explainer_name, explainer_dict_list in generators_to_train.items():
-                for explainer_dict in explainer_dict_list:
+                for i, explainer_dict in enumerate(explainer_dict_list):         
                     runner.get_explainers(
                         argdict, explainer_name, explainer_dict=explainer_dict
                     )
+                    if "forecast" in explainer_name:
+                        runner.set_model_for_explainer(set_eval=False)
+                    
                     log.info(
                         f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}"
                     )
