@@ -5,7 +5,8 @@ import logging
 import numpy as np
 import torch
 
-from winit.explainer.attribution.mask_group import MaskGroup, SetMaskGroup
+from winit.explainer.attribution.mask_group import MaskGroup
+from winit.explainer.attribution.set_mask_group import SetMaskGroup
 from winit.explainer.attribution.perturbation import (
     GaussianBlur,
     FadeMovingAverage,

@@ -104,12 +104,13 @@ test_all_masking() {
     #             --testbs 25 \
     #             --logfile mimic_${explainer}_${modeltype}_all_masking \
     #             --resultfile mimic_${explainer}_${modeltype}_all_masking.csv \
-    #             2>&1 &
+    #             2>&1
     #         wait_n
     #         i=$((i + 1))
     #     done
     # done
 
+    # explainer_list="deeplift fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
     explainer_list="deeplift fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
     # explainer_list="winit winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
     for modeltype in ${modeltype_list}; do

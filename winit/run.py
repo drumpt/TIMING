@@ -216,7 +216,14 @@ class Params:
         }
 
         if lr is None:
-            lr = 1e-4 if isinstance(self._datasets, Mimic) else 1e-3
+            if isinstance(self._datasets, Mimic):
+                if model_type == "MTAND":
+                    lr = 1e-4
+                elif model_type == "SEFT":
+                    lr = 1e-3
+            else:
+                lr = 1e-3
+            # lr = 1e-4 if isinstance(self._datasets, Mimic) else 1e-3
 
         if isinstance(self._datasets, Mimic):
             if model_type == "GRU":
@@ -226,7 +233,7 @@ class Params:
             elif model_type == "LSTM":
                 num_epochs = 30
             elif model_type in ["MTAND", "SEFT"]:
-                num_epochs = 100
+                num_epochs = 300
         else:
             num_epochs = 30
         self._model_train_args = {"num_epochs": num_epochs, "lr": lr}
