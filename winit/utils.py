@@ -62,54 +62,6 @@ def aggregate_scores(scores: np.ndarray, aggregate_method: str) -> np.ndarray:
     return aggregated_scores
 
 
-# def append_df_to_csv(df: pd.DataFrame, csv_path: pathlib.Path) -> int:
-#     """
-#     Write intermediate results to CSV. If there is no existing file, create a new one. If there
-#     is, and if the old csv file have the same columns as the current one, append it. If the
-#     columns are different or there are some IO Error, write to a different file.
-
-#     Args:
-#         df:
-#             The dataframe we wish to write.
-#         csv_path:
-#             The path and the filename of the file.
-
-#     Returns:
-#         An Error code.
-#         0 - Successful appending
-#         1 - Columns do not match
-#         2 - File exists but read failed or some other reasons
-#         3 - File does not exist or is not a file.
-#     """
-#     csv_path.parent.mkdir(parents=True, exist_ok=True)
-#     if csv_path.exists() and csv_path.is_file():
-#         try:
-#             old_df = pd.read_csv(csv_path)
-#             if (old_df.columns == df.columns).all():
-#                 old_df.append(df).to_csv(str(csv_path), index=False)
-#                 return 0
-#             else:
-#                 error_code = 1
-#         except Exception:
-#             error_code = 2
-#     else:
-#         error_code = 3
-#     log = logging.getLogger("Utils")
-#     if error_code == 3:
-#         log.info(f"Creating {csv_path}")
-#         df.to_csv(csv_path, index=False)
-#     else:
-#         i = 1
-#         while True:
-#             old_name = csv_path.stem
-#             new_path = csv_path.with_name(f"{old_name} ({i}){csv_path.suffix}")
-#             if not new_path.exists():
-#                 break
-#             i += 1
-#         log.info(f"Writing to {new_path} instead of appending")
-#         df.to_csv(new_path, index=False)
-#     return error_code
-
 def append_df_to_csv(df: pd.DataFrame, csv_path: pathlib.Path) -> int:
     """
     Write intermediate results to CSV. If there is no existing file, create a new one.

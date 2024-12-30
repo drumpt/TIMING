@@ -558,12 +558,6 @@ class ModelTrainerWithCv:
                 batch_size=self.dataset.testbs,
             )
 
-        try:
-            print(f"{data=}")
-            print(f"{data.shape=}")
-        except:
-            pass
-
         return {
             cv: model_trainer.run_inference(data, with_activation, return_all)
             for cv, model_trainer in self.model_trainers.items()

@@ -110,7 +110,7 @@ class BaseExplainer(abc.ABC):
         """
 
 
-def gradient_shap(model, inputs, baselines, n_samples=50):
+def gradient_shap(model, inputs, baselines, mask, n_samples=50):
     """
     Compute GradientSHAP attributions for a time series model.
 
@@ -138,7 +138,11 @@ def gradient_shap(model, inputs, baselines, n_samples=50):
     noisy_inputs.requires_grad = True
     
     ### only last time point prediction
-    predictions = model.predict(noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]), return_all=False)
+    predictions = model.predict(
+        noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
+        mask=mask,
+        return_all=False
+    )
     
     ### all y_t
     # predictions = model.predict(noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]))
@@ -197,7 +201,7 @@ class GradientShapCFExplainer(BaseExplainer):
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
         baselines = torch.zeros_like(x).to(self.device)
         baselines[:, :, 1:] = x[:, :, :-1]
-        score = gradient_shap(self.base_model, x, baselines, n_samples=50)
+        score = gradient_shap(self.base_model, x, baselines, mask, n_samples=50)
         # score = self.explainer.attribute(
         #     x, n_samples=50, stdevs=0.0001, baselines=baselines, additional_forward_args=(False)
         # )
@@ -236,7 +240,7 @@ class DeepLiftCFExplainer(BaseExplainer):
         assert self.base_model.num_states == 1, "TODO: Implement retrospective for > 1 class"
         baselines = torch.zeros_like(x).to(self.device)
         baselines[:, :, 1:] = x[:, :, :-1]
-        score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(False))
+        score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(mask, None, False))
         score = abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
@@ -271,7 +275,7 @@ class IGCFExplainer(BaseExplainer):
         assert self.base_model.num_states == 1, "TODO: Implement for > 1 class"
         baselines = torch.zeros_like(x).to(self.device)
         baselines[:, :, 1:] = x[:, :, :-1]
-        score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(False))
+        score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(mask, None, False))
         score = np.abs(score.detach().cpu().numpy())
 
         torch.backends.cudnn.enabled = orig_cudnn_setting

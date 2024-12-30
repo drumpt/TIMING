@@ -1,12 +1,15 @@
 import torch
 import torch.nn.functional as F
 
+
 def cross_entropy(proba_pred, proba_target):
     """Computes the cross entropy between the two probabilities torch tensors."""
     return -(proba_target * torch.log(proba_pred)).mean()
 
+
 def cross_entropy_multiple(proba_pred, proba_target):
     return -(proba_target * torch.log(proba_pred)).mean(dim=[0, 2, 3])
+
 
 def log_loss(proba_pred, proba_target):
     """Computes the log loss between the two probabilities torch tensors."""
@@ -14,6 +17,7 @@ def log_loss(proba_pred, proba_target):
     proba_select = torch.gather(proba_pred, -1, label_target)
     logloss = -(torch.log(proba_select)).mean()
     return logloss
+
 
 def log_loss_multiple(proba_pred, proba_target):
     label_target = torch.argmax(proba_target, dim=-1, keepdim=True)

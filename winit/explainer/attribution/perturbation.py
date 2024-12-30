@@ -348,11 +348,10 @@ class SetDropReference(Perturbation):
         super().__init__(eps=eps, device=device)
         self.temperature = temperature
 
-    def gumbel_sigmoid(self, logits):
-        """Samples from Gumbel-Sigmoid distribution for differentiable sampling."""
-        gumbel1 = -torch.log(-torch.log(torch.rand_like(logits) + self.eps) + self.eps)
-        gumbel2 = -torch.log(-torch.log(torch.rand_like(logits) + self.eps) + self.eps)
-        return torch.sigmoid((logits + gumbel1 - gumbel2) / self.temperature)
+    def gumbel_softmax(self, logits):
+        """Samples from Gumbel-Softmax distribution for differentiable sampling."""
+        gumbels = -torch.log(-torch.log(torch.rand_like(logits) + self.eps) + self.eps)
+        return torch.sigmoid((logits + gumbels) / self.temperature)
 
     def apply(self, X, mask_in, mask_tensor):
         """Single sample version."""
@@ -362,12 +361,10 @@ class SetDropReference(Perturbation):
         )
 
         # Sample binary mask using Gumbel-Sigmoid
-        binary_mask = self.gumbel_sigmoid(logits)
+        binary_mask = self.gumbel_softmax(logits)
 
         # Apply binary mask to X and mask_in
         X_pert = binary_mask * X
-        # mask_out = 1 - (1 - mask_in) * binary_mask
-
         return X_pert, binary_mask
 
     def apply_multiple(self, X, mask_in, mask_tensor):
@@ -380,7 +377,7 @@ class SetDropReference(Perturbation):
         logits = torch.log(mask_tensor + self.eps) - torch.log(
             1 - mask_tensor + self.eps
         )
-        binary_mask = self.gumbel_sigmoid(logits)
+        binary_mask = self.gumbel_softmax(logits)
 
         # Handle case where we have multiple masks
         if len(mask_tensor.shape) > len(X.shape):
@@ -389,8 +386,6 @@ class SetDropReference(Perturbation):
 
         # Apply binary mask to X and mask_in
         X_pert = binary_mask * X
-        # mask_out = 1 - (1 - mask_in) * binary_mask
-
         return X_pert, binary_mask
 
     def apply_extremal_multiple(self, X, mask_in, mask_tensor):
