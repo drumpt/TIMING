@@ -399,7 +399,7 @@ if __name__ == "__main__":
         "--hiddensize", type=int, default=200, help="hidden size for base model"
     )
     parser.add_argument(
-        "--batchsize", type=int, default=100, help="batch size for base model"
+        "--batchsize", type=int, default=128, help="batch size for base model"
     )
     parser.add_argument(
         "--dropout", type=float, default=0.5, help="dropout rate for base model"

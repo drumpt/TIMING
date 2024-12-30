@@ -100,7 +100,7 @@ class ExplanationRunner:
         num_layers: int,
         model_type: str = "GRU",
         verbose_eval: int = 10,
-        early_stopping: bool = False,
+        early_stopping: bool = True,
     ) -> None:
         """
         Initialize the base models.

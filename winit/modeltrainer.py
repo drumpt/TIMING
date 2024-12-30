@@ -46,7 +46,7 @@ class ModelTrainer:
         model_type: str = "GRU",
         device: str | torch.device | None = None,
         verbose_eval: int = 10,
-        early_stopping: bool = False,
+        early_stopping: bool = True,
     ):
         """
         Constructor
@@ -393,7 +393,7 @@ class ModelTrainerWithCv:
         model_type: str = "GRU",
         device: str | torch.device | None = None,
         verbose_eval: int = 10,
-        early_stopping: bool = False,
+        early_stopping: bool = True,
     ):
         """
         Constructor
