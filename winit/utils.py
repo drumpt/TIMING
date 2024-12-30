@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import random
 import logging
 import pathlib
 
@@ -114,3 +116,16 @@ def append_df_to_csv(df: pd.DataFrame, csv_path: pathlib.Path) -> int:
         log.info(f"Creating new file at {csv_path}")
         df.to_csv(csv_path, index=False)
         return 3
+
+
+def set_seed(seed):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    np.random.default_rng(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    print(f"set seed as {seed}")
