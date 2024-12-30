@@ -138,6 +138,10 @@ def gradient_shap(model, inputs, baselines, mask, n_samples=50):
     noisy_inputs.requires_grad = True
     
     ### only last time point prediction
+    
+    mask = mask.unsqueeze(0).repeat(n_samples, 1, 1, 1)
+    mask = mask.view(-1, inputs.shape[1], inputs.shape[2])
+    
     predictions = model.predict(
         noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
         mask=mask,
