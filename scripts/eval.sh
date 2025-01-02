@@ -6,7 +6,8 @@ test_all_masking() {
     # modeltype_list="gru"
 
     # explainer_list="gradientshap ig"
-    explainer_list="afogen afoensemble"
+    # explainer_list="gradientshapensemble igensemble"
+    explainer_list="motif"
     # explainer_list="ig fo afo fit dynamask winit"
     # explainer_list="gradientshap_carryforward deeplift_carryforward ig_carryforward"
     for modeltype in ${modeltype_list}; do
@@ -63,6 +64,6 @@ wait_n() {
 GPUS=(0 1 2 3 4 5)
 NUM_GPUS=${#GPUS[@]}
 i=1
-num_max_jobs=1
+num_max_jobs=4
 
 test_all_masking

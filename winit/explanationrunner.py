@@ -29,6 +29,9 @@ from winit.explainer.explainers import (
     AFOEnsembleExplainer,
     GradientShapExplainer,
     MockExplainer,
+    IGEnsembleExplainer,
+    GradientShapEnsembleExplainer,
+    MotifExplainer,
 )
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.explainer.fitexplainers import (
@@ -443,6 +446,48 @@ class ExplanationRunner:
         elif explainer_name == "gradientshap":
             self.explainers = {
                 cv: GradientShapExplainer(self.device)
+                for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "igensemble":
+            self.explainers = {
+                cv: IGEnsembleExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=self.dataset.train_loaders[cv],
+                    args=args,
+                    **explainer_dict,
+                )
+                for cv in self.dataset.cv_to_use()
+            }
+            
+        elif explainer_name == "gradientshapensemble":
+            self.explainers = {
+                cv: GradientShapEnsembleExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=self.dataset.train_loaders[cv],
+                    args=args,
+                    **explainer_dict,
+                )
+                for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "motif":
+            self.explainers = {
+                cv: MotifExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=self.dataset.train_loaders[cv],
+                    args=args,
+                    **explainer_dict,
+                )
                 for cv in self.dataset.cv_to_use()
             }
 
