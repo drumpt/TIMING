@@ -711,7 +711,7 @@ class ExplanationRunner:
                 mask = mask.to(self.device)
                 score = self.explainers[cv].attribute(x, mask)
                 if isinstance(self.explainers[cv].base_model, (mTAND, SeFT)):
-                    score[mask.to(score.device) == 0] = float('-inf')
+                    score[mask.cpu() == 0] = float('-inf')
                     
                 importance_scores.append(score)
 
