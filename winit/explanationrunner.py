@@ -12,6 +12,7 @@ from scipy.stats import rankdata
 from sklearn import metrics
 from torch.utils.data import DataLoader
 
+from winit.models import mTAND, SeFT
 from winit.dataloader import WinITDataset, SimulatedData
 from winit.explainer.dynamaskexplainer import (
     DynamaskExplainer,
@@ -648,6 +649,7 @@ class ExplanationRunner:
             self.explainers[cv].set_model(
                 self.model_trainers.model_trainers[cv].model, set_eval=set_eval
             )
+            print(f"set explainer model for cv={cv}")
 
     def run_attributes(self) -> None:
         """
@@ -708,6 +710,9 @@ class ExplanationRunner:
                 x = x.to(self.device)
                 mask = mask.to(self.device)
                 score = self.explainers[cv].attribute(x, mask)
+                if isinstance(self.explainers[cv].base_model, (mTAND, SeFT)):
+                    score[mask.to(score.device) == 0] = float('-inf')
+                    
                 importance_scores.append(score)
 
             importance_scores = np.concatenate(importance_scores, 0)

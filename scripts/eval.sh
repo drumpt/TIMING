@@ -5,9 +5,9 @@ test_all_masking() {
     modeltype_list="mtand seft"
     # modeltype_list="gru"
 
-    # explainer_list="gradientshap ig"
+    explainer_list="gradientshap ig"
     # explainer_list="gradientshapensemble igensemble"
-    explainer_list="motif"
+    # explainer_list="motif"
     # explainer_list="ig fo afo fit dynamask winit"
     # explainer_list="gradientshap_carryforward deeplift_carryforward ig_carryforward"
     for modeltype in ${modeltype_list}; do

@@ -1221,20 +1221,30 @@ class MotifExplainer(BaseExplainer):
         **kwargs,
     ):
         super().__init__(device)
+        self.device = device
         self.num_features = num_features
         self.motif_discoverer = MotifDiscovery()
-        self.base_explainer = AFOEnsembleExplainer(
-            device, num_features, data_name, path, train_loader, **kwargs
-        )
-        self.discovered_motifs = {}
+        self.data_name = data_name
+        self.path = path
+        self.train_loader = train_loader
+        self.kwargs = kwargs
+        self.explainer = None
 
+        self.discovered_motifs = {}
         if train_loader is not None:
             self._discover_training_motifs(train_loader)
 
     def set_model(self, model, set_eval=True):
-        """Initialize the model and set up the IntegratedGradients explainer"""
         super().set_model(model, set_eval=set_eval)
-        self.explainer = GradientShap(self.base_model)
+        self.explainer = GradientShapEnsembleExplainer(
+            self.device,
+            self.num_features,
+            self.data_name,
+            path=self.path,
+            train_loader=self.train_loader,
+            **self.kwargs,
+        )
+        self.explainer.set_model(model, set_eval=set_eval)
 
     def _discover_training_motifs(self, train_loader: DataLoader):
         """Discover motifs from training data"""
@@ -1247,7 +1257,7 @@ class MotifExplainer(BaseExplainer):
     def attribute(self, x: torch.Tensor, mask: torch.Tensor) -> np.ndarray:
         """Compute enhanced attribution scores"""
         # Get base attribution
-        base_attribution = self.base_explainer.attribute(x, mask)
+        base_attribution = self.explainer.attribute(x, mask)
 
         # Enhance with motif-based attribution
         enhanced_attribution = self._enhance_attribution(x, mask, base_attribution)
