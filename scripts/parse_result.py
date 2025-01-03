@@ -103,7 +103,7 @@ def get_metrics_table(basedir, dataset, modeltype, modelformat, explainer_list):
 
     # Collect results for each explainer
     for explainer in explainer_list:
-        csv_dir = f"{basedir}/{modelformat}/{dataset}/{dataset}_{explainer}_{modeltype}_all_masking.csv"
+        csv_dir = f"{basedir}/{modelformat}/{dataset}/{dataset}_{explainer}_{modeltype}_all_masking_0_2345_reversed_new.csv"
         import os
         print(f"{csv_dir=}")
         print(f"{os.path.exists(csv_dir)=}")
@@ -164,9 +164,9 @@ basedir = "../output"
 dataset = "mimic"
 
 # modeltype_list = ["gru", "mtand"]
-modeltype_list = ["seft"]
+modeltype_list = ["seft", "mtand"]
 # modelformat_list = ["gru1layer", "MTAND"]
-modelformat_list = ["SEFT"]
+modelformat_list = ["SEFT", "MTAND"]
 # explainer_list = [
 #     "deeplift",
 #     "gradientshap",
@@ -180,7 +180,7 @@ modelformat_list = ["SEFT"]
 #     "dynamaskset",
 # ]
 explainer_list = [
-    "deeplift", "gradientshap", "ig", "fo", "afo", "fit", "dynamask", "winit", "winitsetzero", "winitsetzerolong", "winitsetcf", "fitsetzero", "fitsetcf", "fozero"
+    "deeplift", "gradientshap", "ig", "fo", "afo", "fit", "dynamask", "winit", "winitsetzero", "winitsetzerolong", "winitsetcf", "fitsetzero", "fitsetcf", "fozero", "afogen", "afoensemble", "gradientshapensemble", "igensemble"
 ]
 
 for modeltype, modelformat in zip(modeltype_list, modelformat_list):
@@ -188,7 +188,7 @@ for modeltype, modelformat in zip(modeltype_list, modelformat_list):
     print("-" * 80)
 
     table = get_metrics_table(basedir, dataset, modeltype, modelformat, explainer_list)
-    table.to_csv(f"result_{modeltype}.csv")
+    table.to_csv(f"result_{modeltype}_reversed_new.csv")
 
     # Format the table for better readability
     pd.set_option("display.max_columns", None)

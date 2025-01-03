@@ -49,6 +49,57 @@ class MLPForecaster(nn.Module):
     
     def forward(self, x):
         return self.mlp(x)
+    
+class NormalizedLinearForecaster(nn.Module):
+    """
+    A normalized linear layer forecaster with optional dropout.
+    Transforms (..., hidden_size) to (..., num_features).
+    """
+    def __init__(self, hidden_size, num_features, dropout_prob=0.1):
+        super(NormalizedLinearForecaster, self).__init__()
+        # self.normalization = nn.LayerNorm(hidden_size)  # Normalizes input
+        self.normalization = nn.Sequential(nn.BatchNorm1d(num_features=48),
+                                           nn.ReLU(),
+                                           nn.Dropout(dropout_prob))
+
+        self.dropout = nn.Dropout(dropout_prob)  # Adds dropout for regularization
+        self.linear = nn.Linear(hidden_size, num_features)
+    
+    def forward(self, x):
+        x = self.normalization(x)  # Normalize the input
+        x = self.dropout(x)  # Apply dropout
+        return self.linear(x)
+
+
+class NormalizedMLPForecaster(nn.Module):
+    """
+    A normalized multi-layer perceptron (MLP) forecaster with dropout.
+    Transforms (..., hidden_size) to (..., num_features).
+    """
+    def __init__(self, hidden_size, num_features, hidden_units=128, num_layers=2, dropout_prob=0.1):
+        super(NormalizedMLPForecaster, self).__init__()
+        layers = []
+        input_dim = hidden_size
+        
+        # Add normalization layer
+        # layers.append(nn.LayerNorm(input_dim))
+        layers.append(nn.BatchNorm1d(num_features=48))
+        layers.append(nn.ReLU())
+        layers.append(nn.Dropout(dropout_prob))
+
+        # Construct MLP layers
+        for _ in range(num_layers):
+            layers.append(nn.Linear(input_dim, hidden_units))
+            layers.append(nn.ReLU())
+            layers.append(nn.Dropout(dropout_prob))  # Add dropout after each layer
+            input_dim = hidden_units
+        
+        # Final output layer
+        layers.append(nn.Linear(hidden_units, num_features))
+        self.mlp = nn.Sequential(*layers)
+    
+    def forward(self, x):
+        return self.mlp(x)
 
 class Forecastor(BaseFeatureGenerator):
     def __init__(
@@ -67,12 +118,20 @@ class Forecastor(BaseFeatureGenerator):
         self.base_model = base_model
         hidden_size = self.base_model.encoded_hidden_size
         self.forecastor_name = forecastor
+        
         if forecastor == "linear":
             self.forecastor = LinearForecaster(hidden_size, feature_size)
         elif forecastor == "mlp":
             self.forecastor = MLPForecaster(hidden_size, feature_size, hidden_units=latent_size, num_layers=num_layers)
+        elif forecastor == "norm_linear":
+            self.forecastor = NormalizedLinearForecaster(hidden_size, feature_size)
+        elif forecastor == "norm_mlp":
+            self.forecastor = NormalizedMLPForecaster(hidden_size, feature_size, hidden_units=latent_size, num_layers=num_layers)
         
         self.log = logging.getLogger(Forecastor.__name__)
+        
+    def forward(self, x, mask):
+        return self.forecastor(self.base_model.encoding(x, mask, return_all=True)).permute(0, 2, 1)
 
     def _run_one_epoch(
         self,
@@ -89,7 +148,7 @@ class Forecastor(BaseFeatureGenerator):
             self.eval()
         epoch_loss = 0
         
-        loss_criterion = torch.nn.MSELoss()
+        loss_criterion = torch.nn.MSELoss(reduction = "none")
             
         for i, batch in enumerate(dataloader):
             signals = torch.Tensor(batch[0].float()).to(self.device)
@@ -103,11 +162,19 @@ class Forecastor(BaseFeatureGenerator):
             if run_train:
                 optimizer.zero_grad()
             # label: (num_samples, num_features, num_times - 1)
-            label = signals.clone()[:, :, 1:]
-            output = self.forecastor(self.base_model.encoding(signals, masks, return_all=True))
+            label = signals.clone()
+            # label[masks == 0] = -100
+
+            label = label[:, :, 1:]
+            output = self.forward(signals, masks)
             # output: (num_samples, num_times, num_features)
-            output = output[:, :-1, :].permute(0, 2, 1)
+            output = output[:, :, :-1]
             loss = loss_criterion(output.reshape(output.shape[0], -1), label.reshape(label.shape[0], -1))
+ 
+            loss[masks[:, :, 1:].reshape(output.shape[0], -1) == 0] = -100
+            
+            loss = torch.mean(loss[loss != -100])
+            
             epoch_loss += loss.item()
             if run_train:
                 loss.backward()
@@ -127,14 +194,17 @@ class Forecastor(BaseFeatureGenerator):
         self.to(self.device)
 
         # Overwrite default learning parameters if values are passed
-        for p in self.base_model.parameters():
-            p.requires_grad = False
+        # for p in self.base_model.parameters():
+        #     p.requires_grad = False
         default_params = {"lr": 0.001, "weight_decay": 0}
         for k, v in kwargs.items():
             if k in default_params.keys():
                 default_params[k] = v
-
-        parameters = self.parameters()
+                
+        parameters = self.forecastor.parameters()
+        
+        # parameters = self.parameters()
+        
         optimizer = torch.optim.Adam(
             parameters,
             lr=default_params["lr"],
@@ -193,7 +263,7 @@ class Forecastor(BaseFeatureGenerator):
 
         """
         self.to(self.device)
-        test_loss = self._run_one_epoch(test_loader, 10, False, None)
+        test_loss = self._run_one_epoch(test_loader, 0, False, None)
         return test_loss
 
     def _get_model_file_name(self) -> pathlib.Path:

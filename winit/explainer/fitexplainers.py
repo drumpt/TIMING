@@ -132,7 +132,7 @@ class FITExplainer(BaseExplainer):
                 mask_hat = (
                     mask[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
                 )
-                mask_hat[:, :, :, t] = 1  # Values exist
+                mask_hat[:, :, i, t] = 1  # Values exist
                 mask_hat = mask_hat.reshape(-1, n_features, t + 1)
 
                 time_hat = (
@@ -284,7 +284,7 @@ class FITSetCFExplainer(BaseExplainer):
                 mask_hat = (
                     mask[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
                 )
-                mask_hat[:, :, :, t] = 1  # Values exist
+                mask_hat[:, :, i, t] = 1  # Values exist
                 mask_hat = mask_hat.reshape(-1, n_features, t + 1)
 
                 time_hat = (
@@ -435,7 +435,7 @@ class FITSetZeroExplainer(BaseExplainer):
                 mask_hat = (
                     mask[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
                 )
-                mask_hat[:, :, :, t] = 0  # Values don't exist
+                mask_hat[:, :, i, t] = 0  # Values don't exist
                 mask_hat = mask_hat.reshape(-1, n_features, t + 1)
 
                 time_hat = (

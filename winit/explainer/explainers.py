@@ -2,14 +2,22 @@ from __future__ import annotations
 
 import abc
 import logging
+import pathlib
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from captum.attr import IntegratedGradients, DeepLift, GradientShap
 
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.models import TorchModel
 from winit.utils import resolve_device
+from winit.explainer.generator.generator import (
+    FeatureGenerator,
+    BaseFeatureGenerator,
+    GeneratorTrainingResults,
+)
+from winit.explainer.generator.jointgenerator import JointFeatureGenerator
 
 
 class BaseExplainer(abc.ABC):
@@ -129,9 +137,10 @@ class DeepLiftExplainer(BaseExplainer):
     implementation.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model)
@@ -151,7 +160,17 @@ class DeepLiftExplainer(BaseExplainer):
         score = self.explainer.attribute(
             x, baselines=(x * 0), additional_forward_args=(mask, None, False)
         )
-        score = abs(score.detach().cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score
@@ -166,9 +185,10 @@ class IGExplainer(BaseExplainer):
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -186,7 +206,17 @@ class IGExplainer(BaseExplainer):
         score = self.explainer.attribute(
             x, baselines=(x * 0), additional_forward_args=(mask, None, False)
         )
-        score = np.abs(score.detach().cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score
@@ -201,9 +231,10 @@ class GradientShapExplainer(BaseExplainer):
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -226,7 +257,17 @@ class GradientShapExplainer(BaseExplainer):
             baselines=(torch.cat([x * 0, x * 1])),
             additional_forward_args=(mask, None, False),
         )
-        score = abs(score.cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score
@@ -349,8 +390,8 @@ class FOZeroExplainer(BaseExplainer):
 
     def get_name(self):
         if self.n_samples != 10:
-            return f"fo_sample_{self.n_samples}"
-        return "fo"
+            return f"fozero_sample_{self.n_samples}"
+        return "fozero"
 
 
 class AFOExplainer(BaseExplainer):
@@ -415,3 +456,906 @@ class AFOExplainer(BaseExplainer):
         if self.n_samples != 10:
             return f"afo_sample_{self.n_samples}"
         return "afo"
+
+
+class AFOGenExplainer(BaseExplainer):
+    """
+    The explainer for augmented feature occlusion. The implementation is simplified from
+    the FIT repository.
+    https://github.com/sanatonek/time_series_explainability/blob/master/TSX/explainers.py
+    """
+
+    def __init__(
+        self,
+        device,
+        num_features: int,
+        data_name: str,
+        path: pathlib.Path,
+        train_loader: DataLoader | None = None,
+        num_samples: int = 10,
+        conditional: bool = False,
+        joint: bool = False,
+        metric: str = "pd",
+        random_state: int | None = None,
+        args=None,
+        **kwargs,
+    ):
+        super().__init__(device)
+
+        self.n_samples = num_samples
+        self.num_features = num_features
+        self.data_name = data_name
+        self.joint = joint
+        self.conditional = conditional
+        self.metric = metric
+        self.args = args
+
+        self.generators: BaseFeatureGenerator | None = None
+        self.path = path
+        if train_loader is not None:
+            self.data_distribution = (
+                torch.stack([x[0] for x in train_loader.dataset]).detach().cpu().numpy()
+            )
+        else:
+            self.data_distribution = None
+        self.rng = np.random.default_rng(random_state)
+
+        trainset = list(train_loader.dataset)
+        self.data_distribution = torch.stack([x[0] for x in trainset])
+        if len(kwargs) > 0:
+            log = logging.getLogger(AFOGenExplainer.__name__)
+            log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
+
+    def attribute(self, x, mask):
+        self.base_model.eval()
+        self.base_model.zero_grad()
+
+        x = x.to(self.device)
+        batch_size, n_features, t_len = x.shape
+        score = np.zeros(x.shape)
+
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+        for t in range(1, t_len):
+            p_y_t = self.base_model.predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                timesteps[:, : t + 1],
+                return_all=False,
+            )
+
+            # Generate counterfactuals for all features at time t
+            counterfactuals = self._generate_counterfactuals(
+                1,  # time_forward is 1 since we're only replacing current timestep
+                x[:, :, :t],  # past data up to t
+                x[:, :, t : t + 1],  # current timestep data
+            )
+
+            for i in range(n_features):
+                x_hat = x[:, :, 0 : t + 1].clone()
+                mask_hat = mask[:, :, 0 : t + 1].clone()
+                kl_all = []
+
+                # Use generated counterfactuals instead of random sampling
+                for s in range(self.n_samples):
+                    x_hat[:, i, t] = counterfactuals[
+                        i, s, :, 0
+                    ]  # Use generated counterfactual
+                    mask_hat[:, i, t] = 1  # Value exists
+
+                    y_hat_t = self.base_model.predict(
+                        x_hat,
+                        mask_hat,
+                        timesteps[:, : t + 1],
+                        return_all=False,
+                    )
+                    kl = torch.abs((y_hat_t[:, :]) - (p_y_t[:, :]))
+                    kl_all.append(np.mean(kl.detach().cpu().numpy(), -1))
+
+                E_kl = np.mean(np.array(kl_all), axis=0)
+                score[:, i, t] = E_kl
+        return score
+
+    def _generate_counterfactuals(
+        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None
+    ) -> torch.Tensor:
+        """
+        Generate the counterfactuals.
+
+        Args:
+            time_forward:
+                Number of timesteps of counterfactuals we wish to generate.
+            x_in:
+                The past Tensor. Shape = (batch_size, num_features, num_times)
+            x_current:
+                The current Tensor if a conditional generator is used.
+                Shape = (batch_size, num_features, time_forward). If the generator is not
+                conditional, x_current is None.
+
+        Returns:
+            Counterfactual of shape (num_features, num_samples, batch_size, time_forward)
+
+        """
+        # x_in shape (bs, num_feature, num_time)
+        # x_current shape (bs, num_feature, time_forward)
+        # return counterfactuals shape (num_feature, num_samples, batchsize, time_forward)
+        batch_size, _, num_time = x_in.shape
+        if self.data_distribution is not None:
+            # Random sample instead of using generator
+            counterfactuals = torch.zeros(
+                (self.num_features, self.n_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                values = self.data_distribution[:, f, :].reshape(-1)
+                counterfactuals[f, :, :, :] = torch.tensor(
+                    self.rng.choice(
+                        values, size=(self.n_samples, batch_size, time_forward)
+                    ),
+                    device=self.device,
+                )
+            return counterfactuals
+
+        if isinstance(self.generators, FeatureGenerator):
+            mu, std = self.generators.forward(x_current, x_in, deterministic=True)
+            mu = mu[:, :, :time_forward]
+            std = std[:, :, :time_forward]  # (bs, f, time_forward)
+            counterfactuals = mu.unsqueeze(0) + torch.randn(
+                self.n_samples,
+                batch_size,
+                self.num_features,
+                time_forward,
+                device=self.device,
+            ) * std.unsqueeze(0)
+            return counterfactuals.permute(2, 0, 1, 3)
+
+        if isinstance(self.generators, JointFeatureGenerator):
+            counterfactuals = torch.zeros(
+                (self.num_features, self.n_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                mu_z, std_z = self.generators.get_z_mu_std(x_in)
+                gen_out, _ = (
+                    self.generators.forward_conditional_multisample_from_z_mu_std(
+                        x_in,
+                        x_current,
+                        list(set(range(self.num_features)) - {f}),
+                        mu_z,
+                        std_z,
+                        self.n_samples,
+                    )
+                )
+                # gen_out shape (ns, bs, num_feature, time_forward)
+                counterfactuals[f, :, :, :] = gen_out[:, :, f, :]
+            return counterfactuals
+
+        raise ValueError("Unknown generator or no data distribution provided.")
+
+    def get_name(self):
+        if self.n_samples != 10:
+            return f"afogen_sample_{self.n_samples}"
+        return "afogen"
+
+
+class AFOEnsembleExplainer(BaseExplainer):
+    """
+    The explainer for augmented feature occlusion. The implementation is simplified from
+    the FIT repository.
+    https://github.com/sanatonek/time_series_explainability/blob/master/TSX/explainers.py
+    """
+
+    def __init__(
+        self,
+        device,
+        num_features: int,
+        data_name: str,
+        path: pathlib.Path,
+        train_loader: DataLoader | None = None,
+        num_samples: int = 10,
+        conditional: bool = False,
+        joint: bool = False,
+        metric: str = "pd",
+        random_state: int | None = None,
+        args=None,
+        **kwargs,
+    ):
+        super().__init__(device)
+
+        self.n_samples = num_samples
+        self.num_features = num_features
+        self.data_name = data_name
+        self.joint = joint
+        self.conditional = conditional
+        self.metric = metric
+        self.args = args
+
+        self.generators: BaseFeatureGenerator | None = None
+        self.path = path
+        if train_loader is not None:
+            self.data_distribution = (
+                torch.stack([x[0] for x in train_loader.dataset]).detach().cpu().numpy()
+            )
+        else:
+            self.data_distribution = None
+        self.rng = np.random.default_rng(random_state)
+
+        trainset = list(train_loader.dataset)
+        self.data_distribution = torch.stack([x[0] for x in trainset])
+        if len(kwargs) > 0:
+            log = logging.getLogger(AFOGenExplainer.__name__)
+            log.warning(f"kwargs is not empty. Unused kwargs={kwargs}")
+
+    def attribute(self, x, mask):
+        """
+        Compute attributions using ensemble of:
+        1. Zero replacement
+        2. Previous value copying
+        3. Generator-based counterfactuals
+        """
+        self.base_model.eval()
+        self.base_model.zero_grad()
+
+        x = x.to(self.device)
+        batch_size, n_features, t_len = x.shape
+        scores = np.zeros(
+            (3, batch_size, n_features, t_len)
+        )  # Store scores from each method
+
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+
+        for t in range(1, t_len):
+            # Get original prediction
+            p_y_t = self.base_model.predict(
+                x[:, :, : t + 1],
+                mask[:, :, : t + 1],
+                timesteps[:, : t + 1],
+                return_all=False,
+            )
+
+            # Generate counterfactuals for generator-based method
+            counterfactuals = self._generate_counterfactuals(
+                1,
+                x[:, :, :t],
+                x[:, :, t : t + 1],
+            )
+
+            for i in range(n_features):
+                # Method 1: Zero replacement
+                x_hat_zero = x[:, :, : t + 1].clone()
+                mask_hat_zero = mask[:, :, : t + 1].clone()
+                x_hat_zero[:, i, t] = torch.zeros_like(x_hat_zero[:, i, t])
+                mask_hat_zero[:, i, t] = 0
+                y_hat_zero = self.base_model.predict(
+                    x_hat_zero,
+                    mask_hat_zero,
+                    timesteps[:, : t + 1],
+                    return_all=False,
+                )
+                kl_zero = torch.abs(y_hat_zero - p_y_t)
+                scores[0, :, i, t] = np.mean(kl_zero.detach().cpu().numpy(), -1)
+
+                # Method 2: Previous value copying
+                x_hat_prev = (
+                    x[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
+                )
+                prev_value = x_hat_prev[:, :, i, t - 1 : t]
+                x_hat_prev[:, :, i, t] = prev_value.squeeze(-1)
+                x_hat_prev = x_hat_prev.reshape(-1, n_features, t + 1)
+
+                mask_hat_prev = (
+                    mask[:, :, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1, 1)
+                )
+                mask_hat_prev = mask_hat_prev.reshape(-1, n_features, t + 1)
+
+                timesteps_prev = (
+                    timesteps[:, : t + 1].unsqueeze(0).repeat(self.n_samples, 1, 1)
+                )
+                timesteps_prev = timesteps_prev.reshape(-1, t + 1)
+
+                y_hat_prev = self.base_model.predict(
+                    x_hat_prev, mask_hat_prev, timesteps_prev, return_all=False
+                )
+                y_hat_prev = y_hat_prev.reshape(
+                    self.n_samples, -1, y_hat_prev.shape[-1]
+                )
+                p_y_t_expanded = p_y_t.unsqueeze(0).expand(self.n_samples, -1, -1)
+
+                kl_prev = torch.abs(y_hat_prev - p_y_t_expanded)
+                scores[1, :, i, t] = (
+                    torch.mean(kl_prev, dim=0).detach().cpu().numpy().mean(-1)
+                )
+
+                # Method 3: Generator-based
+                x_hat_gen = x[:, :, : t + 1].clone()
+                mask_hat_gen = mask[:, :, : t + 1].clone()
+                kl_all_gen = []
+
+                for s in range(self.n_samples):
+                    x_hat_gen[:, i, t] = counterfactuals[i, s, :, 0]
+                    mask_hat_gen[:, i, t] = 1
+
+                    y_hat_gen = self.base_model.predict(
+                        x_hat_gen,
+                        mask_hat_gen,
+                        timesteps[:, : t + 1],
+                        return_all=False,
+                    )
+                    kl = torch.abs(y_hat_gen - p_y_t)
+                    kl_all_gen.append(np.mean(kl.detach().cpu().numpy(), -1))
+
+                scores[2, :, i, t] = np.mean(np.array(kl_all_gen), axis=0)
+
+        # Take maximum scores across methods
+        final_scores = np.max(scores, axis=0)
+        return final_scores
+
+    def _generate_counterfactuals(
+        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None
+    ) -> torch.Tensor:
+        """
+        Generate the counterfactuals.
+
+        Args:
+            time_forward:
+                Number of timesteps of counterfactuals we wish to generate.
+            x_in:
+                The past Tensor. Shape = (batch_size, num_features, num_times)
+            x_current:
+                The current Tensor if a conditional generator is used.
+                Shape = (batch_size, num_features, time_forward). If the generator is not
+                conditional, x_current is None.
+
+        Returns:
+            Counterfactual of shape (num_features, num_samples, batch_size, time_forward)
+
+        """
+        # x_in shape (bs, num_feature, num_time)
+        # x_current shape (bs, num_feature, time_forward)
+        # return counterfactuals shape (num_feature, num_samples, batchsize, time_forward)
+        batch_size, _, num_time = x_in.shape
+        if self.data_distribution is not None:
+            # Random sample instead of using generator
+            counterfactuals = torch.zeros(
+                (self.num_features, self.n_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                values = self.data_distribution[:, f, :].reshape(-1)
+                counterfactuals[f, :, :, :] = torch.tensor(
+                    self.rng.choice(
+                        values, size=(self.n_samples, batch_size, time_forward)
+                    ),
+                    device=self.device,
+                )
+            return counterfactuals
+
+        if isinstance(self.generators, FeatureGenerator):
+            mu, std = self.generators.forward(x_current, x_in, deterministic=True)
+            mu = mu[:, :, :time_forward]
+            std = std[:, :, :time_forward]  # (bs, f, time_forward)
+            counterfactuals = mu.unsqueeze(0) + torch.randn(
+                self.n_samples,
+                batch_size,
+                self.num_features,
+                time_forward,
+                device=self.device,
+            ) * std.unsqueeze(0)
+            return counterfactuals.permute(2, 0, 1, 3)
+
+        if isinstance(self.generators, JointFeatureGenerator):
+            counterfactuals = torch.zeros(
+                (self.num_features, self.n_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                mu_z, std_z = self.generators.get_z_mu_std(x_in)
+                gen_out, _ = (
+                    self.generators.forward_conditional_multisample_from_z_mu_std(
+                        x_in,
+                        x_current,
+                        list(set(range(self.num_features)) - {f}),
+                        mu_z,
+                        std_z,
+                        self.n_samples,
+                    )
+                )
+                # gen_out shape (ns, bs, num_feature, time_forward)
+                counterfactuals[f, :, :, :] = gen_out[:, :, f, :]
+            return counterfactuals
+
+        raise ValueError("Unknown generator or no data distribution provided.")
+
+    def get_name(self):
+        if self.n_samples != 10:
+            return f"afoensemble_sample_{self.n_samples}"
+        return "afoensemble"
+
+
+class IGEnsembleExplainer(BaseExplainer):
+    def __init__(
+        self,
+        device,
+        num_features: int,
+        data_name: str,
+        path: pathlib.Path,
+        train_loader: DataLoader | None = None,
+        num_samples: int = 10,
+        conditional: bool = False,
+        random_state: int | None = None,
+        joint: bool = False,
+        **kwargs,
+    ):
+        super().__init__(device)
+        self.explainer = None
+        self.num_samples = num_samples
+        self.num_features = num_features
+        self.data_name = data_name
+        self.joint = joint
+        self.conditional = conditional
+        self.path = path
+
+        if train_loader is not None:
+            self.data_distribution = torch.stack([x[0] for x in train_loader.dataset])
+        else:
+            self.data_distribution = None
+
+        self.generators: BaseFeatureGenerator | None = None
+        self.rng = np.random.default_rng(random_state)
+
+    def set_model(self, model, set_eval=True):
+        """Initialize the model and set up the IntegratedGradients explainer"""
+        super().set_model(model, set_eval=set_eval)
+        self.explainer = IntegratedGradients(self.base_model)
+
+    def attribute(self, x, mask):
+        self.base_model.zero_grad()
+        self.base_model.eval()
+
+        orig_cudnn_setting = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+
+        batch_size, n_features, t_len = x.shape
+        scores = np.zeros((3, batch_size, n_features, t_len))
+
+        for t in range(1, t_len):
+            current_input = x[:, :, : t + 1]
+            current_mask = mask[:, :, : t + 1]
+            timesteps_current = None
+
+            # Method 1: Zero baseline
+            baseline_zero = torch.zeros_like(current_input)
+            score_zero = self.explainer.attribute(
+                current_input,
+                baselines=baseline_zero,
+                additional_forward_args=(current_mask, timesteps_current, False),
+            )
+            scores[0, :, :, t] = np.abs(score_zero[:, :, t].detach().cpu().numpy())
+
+            # Method 2: Previous value copying
+            x_prev = current_input.clone()
+            x_prev[:, :, t] = x_prev[:, :, t - 1]
+            score_prev = self.explainer.attribute(
+                current_input,
+                baselines=x_prev,
+                additional_forward_args=(current_mask, timesteps_current, False),
+            )
+            scores[1, :, :, t] = np.abs(score_prev[:, :, t].detach().cpu().numpy())
+
+            # Method 3: Generator-based counterfactuals
+            for feature_idx in range(n_features):
+                counterfactuals = self._generate_counterfactuals(
+                    1,
+                    x[:, :, :t],
+                    x[:, :, t : t + 1],
+                )
+
+                # Create baseline with same shape as input
+                baseline_gen = current_input.clone()
+                # Replace the current timestep value with counterfactual for the current feature
+                baseline_gen[:, feature_idx, t] = counterfactuals[feature_idx, 0, :, 0]
+
+                score_gen = self.explainer.attribute(
+                    current_input,
+                    baselines=baseline_gen,
+                    additional_forward_args=(current_mask, timesteps_current, False),
+                )
+                scores[2, :, feature_idx, t] = np.abs(
+                    score_gen[:, feature_idx, t].detach().cpu().numpy()
+                )
+
+        torch.backends.cudnn.enabled = orig_cudnn_setting
+        return np.max(scores, axis=0)
+
+    def _generate_counterfactuals(
+        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None
+    ) -> torch.Tensor:
+        """
+        Generate the counterfactuals.
+
+        Args:
+            time_forward:
+                Number of timesteps of counterfactuals we wish to generate.
+            x_in:
+                The past Tensor. Shape = (batch_size, num_features, num_times)
+            x_current:
+                The current Tensor if a conditional generator is used.
+                Shape = (batch_size, num_features, time_forward). If the generator is not
+                conditional, x_current is None.
+
+        Returns:
+            Counterfactual of shape (num_features, num_samples, batch_size, time_forward)
+
+        """
+        # x_in shape (bs, num_feature, num_time)
+        # x_current shape (bs, num_feature, time_forward)
+        # return counterfactuals shape (num_feature, num_samples, batchsize, time_forward)
+        batch_size, _, num_time = x_in.shape
+        if self.data_distribution is not None:
+            # Random sample instead of using generator
+            counterfactuals = torch.zeros(
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                values = self.data_distribution[:, f, :].reshape(-1)
+                counterfactuals[f, :, :, :] = torch.tensor(
+                    self.rng.choice(
+                        values, size=(self.num_samples, batch_size, time_forward)
+                    ),
+                    device=self.device,
+                )
+            return counterfactuals
+
+        if isinstance(self.generators, FeatureGenerator):
+            mu, std = self.generators.forward(x_current, x_in, deterministic=True)
+            mu = mu[:, :, :time_forward]
+            std = std[:, :, :time_forward]  # (bs, f, time_forward)
+            counterfactuals = mu.unsqueeze(0) + torch.randn(
+                self.num_samples,
+                batch_size,
+                self.num_features,
+                time_forward,
+                device=self.device,
+            ) * std.unsqueeze(0)
+            return counterfactuals.permute(2, 0, 1, 3)
+
+        if isinstance(self.generators, JointFeatureGenerator):
+            counterfactuals = torch.zeros(
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                mu_z, std_z = self.generators.get_z_mu_std(x_in)
+                gen_out, _ = (
+                    self.generators.forward_conditional_multisample_from_z_mu_std(
+                        x_in,
+                        x_current,
+                        list(set(range(self.num_features)) - {f}),
+                        mu_z,
+                        std_z,
+                        self.num_samples,
+                    )
+                )
+                # gen_out shape (ns, bs, num_feature, time_forward)
+                counterfactuals[f, :, :, :] = gen_out[:, :, f, :]
+            return counterfactuals
+
+        raise ValueError("Unknown generator or no data distribution provided.")
+
+    def get_name(self):
+        return "igensemble"
+
+
+class GradientShapEnsembleExplainer(BaseExplainer):
+    def __init__(
+        self,
+        device,
+        num_features: int,
+        data_name: str,
+        path: pathlib.Path,
+        train_loader: DataLoader | None = None,
+        num_samples: int = 10,
+        conditional: bool = False,
+        random_state: int | None = None,
+        joint: bool = False,
+        **kwargs,
+    ):
+        super().__init__(device)
+        self.explainer = None
+        self.num_samples = num_samples
+        self.num_features = num_features
+        self.data_name = data_name
+        self.joint = joint
+        self.conditional = conditional
+        self.path = path
+
+        if train_loader is not None:
+            self.data_distribution = torch.stack([x[0] for x in train_loader.dataset])
+        else:
+            self.data_distribution = None
+
+        self.generators: BaseFeatureGenerator | None = None
+        self.rng = np.random.default_rng(random_state)
+
+    def set_model(self, model, set_eval=True):
+        """Initialize the model and set up the IntegratedGradients explainer"""
+        super().set_model(model, set_eval=set_eval)
+        self.explainer = GradientShap(self.base_model)
+
+    def attribute(self, x, mask):
+        self.base_model.zero_grad()
+        self.base_model.eval()
+
+        orig_cudnn_setting = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+
+        batch_size, n_features, t_len = x.shape
+        scores = np.zeros((3, batch_size, n_features, t_len))
+
+        for t in range(1, t_len):
+            # Method 1: Zero and one baselines
+            baselines_zero_one = torch.cat([x[:, :, : t + 1] * 0, x[:, :, : t + 1] * 1])
+            score_zero_one = self.explainer.attribute(
+                x[:, :, : t + 1],
+                n_samples=self.num_samples,
+                stdevs=0.0001,
+                baselines=baselines_zero_one,
+                additional_forward_args=(mask[:, :, : t + 1], None, False),
+            )
+            scores[0, :, :, t] = np.abs(score_zero_one[:, :, t].detach().cpu().numpy())
+
+            # Method 2: Previous value copying
+            x_prev = x[:, :, : t + 1].clone()
+            x_prev[:, :, t] = x_prev[:, :, t - 1]
+            baselines_prev = torch.cat([x_prev, x[:, :, : t + 1]])
+            score_prev = self.explainer.attribute(
+                x[:, :, : t + 1],
+                n_samples=self.num_samples,
+                stdevs=0.0001,
+                baselines=baselines_prev,
+                additional_forward_args=(mask[:, :, : t + 1], None, False),
+            )
+            scores[1, :, :, t] = np.abs(score_prev[:, :, t].detach().cpu().numpy())
+
+            # Method 3: Generator-based counterfactuals
+            counterfactuals = self._generate_counterfactuals(
+                1,
+                x[:, :, :t],
+                x[:, :, t : t + 1],
+            )
+
+            # Create baselines by expanding counterfactuals to match the time dimension
+            baselines = (
+                x[:, :, : t + 1]
+                .clone()
+                .unsqueeze(0)
+                .repeat(self.num_samples * self.num_features, 1, 1, 1)
+            )
+            for i in range(self.num_features):
+                # Replace only the current timestep with counterfactual values
+                start_idx = i * self.num_samples
+                end_idx = (i + 1) * self.num_samples
+                baselines[start_idx:end_idx, :, i, t] = counterfactuals[i, :, :, 0]
+
+            score_gen = self.explainer.attribute(
+                x[:, :, : t + 1],
+                baselines=baselines.reshape(-1, n_features, t + 1),
+                additional_forward_args=(mask[:, :, : t + 1], None, False),
+            )
+            scores[2, :, :, t] = np.abs(score_gen[:, :, t].detach().cpu().numpy())
+
+        torch.backends.cudnn.enabled = orig_cudnn_setting
+        return np.max(scores, axis=0)
+
+    def _generate_counterfactuals(
+        self, time_forward: int, x_in: torch.Tensor, x_current: torch.Tensor = None
+    ) -> torch.Tensor:
+        """
+        Generate the counterfactuals.
+
+        Args:
+            time_forward:
+                Number of timesteps of counterfactuals we wish to generate.
+            x_in:
+                The past Tensor. Shape = (batch_size, num_features, num_times)
+            x_current:
+                The current Tensor if a conditional generator is used.
+                Shape = (batch_size, num_features, time_forward). If the generator is not
+                conditional, x_current is None.
+
+        Returns:
+            Counterfactual of shape (num_features, num_samples, batch_size, time_forward)
+
+        """
+        # x_in shape (bs, num_feature, num_time)
+        # x_current shape (bs, num_feature, time_forward)
+        # return counterfactuals shape (num_feature, num_samples, batchsize, time_forward)
+        batch_size, _, num_time = x_in.shape
+        if self.data_distribution is not None:
+            # Random sample instead of using generator
+            counterfactuals = torch.zeros(
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                values = self.data_distribution[:, f, :].reshape(-1)
+                counterfactuals[f, :, :, :] = torch.tensor(
+                    self.rng.choice(
+                        values, size=(self.num_samples, batch_size, time_forward)
+                    ),
+                    device=self.device,
+                )
+            return counterfactuals
+
+        if isinstance(self.generators, FeatureGenerator):
+            mu, std = self.generators.forward(x_current, x_in, deterministic=True)
+            mu = mu[:, :, :time_forward]
+            std = std[:, :, :time_forward]  # (bs, f, time_forward)
+            counterfactuals = mu.unsqueeze(0) + torch.randn(
+                self.num_samples,
+                batch_size,
+                self.num_features,
+                time_forward,
+                device=self.device,
+            ) * std.unsqueeze(0)
+            return counterfactuals.permute(2, 0, 1, 3)
+
+        if isinstance(self.generators, JointFeatureGenerator):
+            counterfactuals = torch.zeros(
+                (self.num_features, self.num_samples, batch_size, time_forward),
+                device=self.device,
+            )
+            for f in range(self.num_features):
+                mu_z, std_z = self.generators.get_z_mu_std(x_in)
+                gen_out, _ = (
+                    self.generators.forward_conditional_multisample_from_z_mu_std(
+                        x_in,
+                        x_current,
+                        list(set(range(self.num_features)) - {f}),
+                        mu_z,
+                        std_z,
+                        self.num_samples,
+                    )
+                )
+                # gen_out shape (ns, bs, num_feature, time_forward)
+                counterfactuals[f, :, :, :] = gen_out[:, :, f, :]
+            return counterfactuals
+
+        raise ValueError("Unknown generator or no data distribution provided.")
+
+    def get_name(self):
+        return "gradientshapensemble"
+
+
+from typing import Dict, List, Optional
+
+import torch
+import numpy as np
+
+from winit.explainer.motif import TemporalMotif, MotifDiscovery
+
+
+class MotifExplainer(BaseExplainer):
+    def __init__(
+        self,
+        device,
+        num_features: int,
+        data_name: str,
+        path: pathlib.Path,
+        train_loader: Optional[DataLoader] = None,
+        **kwargs,
+    ):
+        super().__init__(device)
+        self.device = device
+        self.num_features = num_features
+        self.motif_discoverer = MotifDiscovery()
+        self.data_name = data_name
+        self.path = path
+        self.train_loader = train_loader
+        self.kwargs = kwargs
+        self.explainer = None
+
+        self.discovered_motifs = {}
+        if train_loader is not None:
+            self._discover_training_motifs(train_loader)
+
+    def set_model(self, model, set_eval=True):
+        super().set_model(model, set_eval=set_eval)
+        self.explainer = GradientShapEnsembleExplainer(
+            self.device,
+            self.num_features,
+            self.data_name,
+            path=self.path,
+            train_loader=self.train_loader,
+            **self.kwargs,
+        )
+        self.explainer.set_model(model, set_eval=set_eval)
+
+    def _discover_training_motifs(self, train_loader: DataLoader):
+        """Discover motifs from training data"""
+        train_data = torch.stack([x[0] for x in train_loader.dataset])
+        train_masks = torch.stack([x[2] for x in train_loader.dataset])
+        self.discovered_motifs = self.motif_discoverer.discover_motifs(
+            train_data, train_masks
+        )
+
+    def attribute(self, x: torch.Tensor, mask: torch.Tensor) -> np.ndarray:
+        """Compute enhanced attribution scores"""
+        # Get base attribution
+        base_attribution = self.explainer.attribute(x, mask)
+
+        # Enhance with motif-based attribution
+        enhanced_attribution = self._enhance_attribution(x, mask, base_attribution)
+
+        return enhanced_attribution
+
+    def _enhance_attribution(
+        self, x: torch.Tensor, mask: torch.Tensor, base_attribution: np.ndarray
+    ) -> np.ndarray:
+        """Enhance base attribution with motif information"""
+        enhanced_attribution = base_attribution.copy()
+
+        for length, motifs in self.discovered_motifs.items():
+            for motif in motifs:
+                # Find matches in current sequence
+                matches = self._find_motif_matches(x, mask, motif)
+
+                # Enhance attribution based on matches
+                for match in matches:
+                    start_idx = match["start"]
+                    feature_idx = match["feature"]
+
+                    # Enhance attribution scores for matched region
+                    enhancement = motif.importance_score * self._compute_match_quality(
+                        x[:, feature_idx, start_idx : start_idx + length],
+                        mask[:, feature_idx, start_idx : start_idx + length],
+                        motif,
+                    )
+
+                    enhanced_attribution[
+                        :, feature_idx, start_idx : start_idx + length
+                    ] += enhancement
+
+        return enhanced_attribution
+
+    def _find_motif_matches(
+        self, x: torch.Tensor, mask: torch.Tensor, motif: TemporalMotif
+    ) -> List[Dict]:
+        """Find matches of a motif in the current sequence"""
+        matches = []
+        batch_size, n_features, seq_length = x.shape
+        motif_length = len(motif.pattern)
+
+        for b in range(batch_size):
+            for f in range(n_features):
+                for start in range(seq_length - motif_length + 1):
+                    subseq = x[b, f, start : start + motif_length]
+                    submask = mask[b, f, start : start + motif_length]
+
+                    if submask.sum() >= self.motif_discoverer.min_length:
+                        distance = self.motif_discoverer.compute_sequence_distance(
+                            subseq, motif.pattern, submask, motif.mask
+                        )
+
+                        if distance < self.motif_discoverer.distance_threshold:
+                            matches.append(
+                                {
+                                    "batch": b,
+                                    "feature": f,
+                                    "start": start,
+                                    "distance": distance,
+                                }
+                            )
+
+        return matches
+
+    def get_name(self):
+        return "motif_enhanced_attribution"
