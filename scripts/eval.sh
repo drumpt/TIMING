@@ -5,7 +5,8 @@ test_all_masking() {
     modeltype_list="mtand seft"
     # modeltype_list="gru"
 
-    p=test_f1 # split: valid, test (choice), metric: f1, accuracy, precision, recall (choice)
+    # p=valid_f1 # split: valid, test (choice), metric: f1, accuracy, precision, recall (choice)
+    p=0.1 # split: valid, test (choice), metric: f1, accuracy, precision, recall (choice)
 
     # explainer_list="gradientshap ig"
     # explainer_list="gradientshapensemble igensemble"

@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List
 import warnings
+
 warnings.filterwarnings(action="ignore")
 
 import pandas as pd
@@ -309,6 +310,27 @@ class Params:
         return maskers
 
 
+def parse_p(value):
+    """
+    Parse the p argument to handle float, int, or str.
+    
+    Args:
+        value: Input string from command line
+    Returns:
+        Parsed value as float, int, or str
+    """
+    try:
+        # Try converting to float first
+        float_val = float(value)
+        # Check if it's actually an integer
+        if float_val.is_integer():
+            return int(float_val)
+        return float_val
+    except ValueError:
+        # If conversion fails, return as string
+        return value
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run simulated experiments")
     parser.add_argument(
@@ -501,7 +523,12 @@ if __name__ == "__main__":
         help="WinIT metrics for divergence of distributions",
     )
 
-    parser.add_argument("--p", default=-1.0, help="p for pseudo label")
+    parser.add_argument(
+        "--p",
+        type=parse_p,
+        default=-1.0,
+        help="p for pseudo label"
+    )
 
     # eval args
     parser.add_argument(
@@ -582,7 +609,9 @@ if __name__ == "__main__":
     try:
         # load data and train model
         dataset.load_data()
-        runner = ExplanationRunner(argdict, dataset, device, out_path, ckpt_path, plot_path)
+        runner = ExplanationRunner(
+            argdict, dataset, device, out_path, ckpt_path, plot_path
+        )
         runner.init_model(**model_args)
         use_all_times = not isinstance(dataset, Mimic)
         if train_models:
