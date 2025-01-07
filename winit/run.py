@@ -157,9 +157,11 @@ class Params:
                     explainer_dict["n_samples"] = nsamples
                 if explainer == "fit":
                     generator_dict["fit"] = [explainer_dict]
-                if "forecast" in explainer:
+                if "forecast" in explainer or "counterfactual" in explainer:
                     explainer_dict["forecastor"] = self.argdict["forecastor"]
                     generator_dict[explainer] = [explainer_dict]
+                if "ig" in explainer or "deeplift" in explainer or "gradientshap" in explainer:
+                    explainer_dict["p"] = self.argdict["p"]
                 all_explainer_dict[explainer] = [explainer_dict]
         self._all_explainer_dict = all_explainer_dict
         self._generators_to_train = generator_dict
@@ -282,9 +284,7 @@ class Params:
     def get_maskers(self, explainer: BaseExplainer) -> List[Masker]:
         maskers = []
         seed = argdict["maskseed"]
-        absolutize = isinstance(
-            explainer, (DeepLiftExplainer, IGExplainer, GradientShapExplainer)
-        )
+        absolutize = False
         for drop, aggregate_method in itertools.product(
             self.argdict["drop"], self.argdict["aggregate"]
         ):
@@ -500,6 +500,13 @@ if __name__ == "__main__":
         default="linear",
         help="WinIT metrics for divergence of distributions",
     )
+    
+    parser.add_argument(
+        "--p",
+        type=float,
+        default=-1.0,
+        help="p for pseudo label"
+    )
 
     # eval args
     parser.add_argument(
@@ -597,7 +604,7 @@ if __name__ == "__main__":
                     runner.get_explainers(
                         argdict, explainer_name, explainer_dict=explainer_dict
                     )
-                    if "forecast" in explainer_name:
+                    if "forecast" in explainer_name or "counterfactual" in explainer_name:
                         runner.set_model_for_explainer(set_eval=False)
                     
                     log.info(

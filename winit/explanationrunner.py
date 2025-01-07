@@ -45,6 +45,7 @@ from winit.explainer.winitexplainers import (
     WinITSetZeroExplainer,
     WinITSetZeroLongExplainer,
     WinITSetCFExplainer,
+    WinITHiddenExplainer,
 )
 from winit.explainer.carryforward_explainers import (
     GradientShapCFExplainer,
@@ -55,6 +56,11 @@ from winit.explainer.forecast_explainers import (
     GradientShapFCExplainer,
     DeepLiftFCExplainer,
     IGFCExplainer,
+)
+from winit.explainer.counterfactual_explainers import (
+    GradientShapCoFExplainer,
+    DeepLiftCoFExplainer,
+    IGCoFExplainer,
 )
 from winit.modeltrainer import ModelTrainerWithCv
 from winit.plot import BoxPlotter
@@ -352,6 +358,28 @@ class ExplanationRunner:
                     args=args,
                     **kwargs,
                 )
+                
+        elif explainer_name == "winithidden":
+            train_loaders = (
+                self.dataset.train_loaders
+                if explainer_dict.get("usedatadist") is True
+                else None
+            )
+            self.explainers = {}
+            kwargs = explainer_dict.copy()
+            if "usedatadist" in kwargs:
+                kwargs.pop("usedatadist")
+            for cv in self.dataset.cv_to_use():
+                train_loader = train_loaders[cv] if train_loaders is not None else None
+                self.explainers[cv] = WinITHiddenExplainer(
+                    self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    train_loader=train_loader,
+                    args=args,
+                    **kwargs,
+                )
 
         elif explainer_name == "fit":
             self.explainers = {}
@@ -388,12 +416,12 @@ class ExplanationRunner:
 
         elif explainer_name == "ig":
             self.explainers = {
-                cv: IGExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: IGExplainer(self.device, explainer_dict['p']) for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift":
             self.explainers = {
-                cv: DeepLiftExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: DeepLiftExplainer(self.device, explainer_dict['p']) for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "fo":
@@ -446,7 +474,7 @@ class ExplanationRunner:
 
         elif explainer_name == "gradientshap":
             self.explainers = {
-                cv: GradientShapExplainer(self.device)
+                cv: GradientShapExplainer(self.device, explainer_dict['p'])
                 for cv in self.dataset.cv_to_use()
             }
 
@@ -509,55 +537,78 @@ class ExplanationRunner:
 
         elif explainer_name == "ig_carryforward":
             self.explainers = {
-                cv: IGCFExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: IGCFExplainer(self.device, explainer_dict['p']) 
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift_carryforward":
             self.explainers = {
-                cv: DeepLiftCFExplainer(self.device) for cv in self.dataset.cv_to_use()
+                cv: DeepLiftCFExplainer(self.device, explainer_dict['p']) 
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_carryforward":
             self.explainers = {
-                cv: GradientShapCFExplainer(self.device)
+                cv: GradientShapCFExplainer(self.device, explainer_dict['p'])
                 for cv in self.dataset.cv_to_use()
             }
+
 
         elif explainer_name == "ig_forecast":
             self.explainers = {
-                cv: IGFCExplainer(
-                    self.device,
+                cv: IGFCExplainer(self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"],
-                )
-                for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
             }
-
+            
         elif explainer_name == "deeplift_forecast":
             print(explainer_dict)
             self.explainers = {
-                cv: DeepLiftFCExplainer(
-                    self.device,
+                cv: DeepLiftFCExplainer(self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"],
-                )
-                for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_forecast":
             self.explainers = {
-                cv: GradientShapFCExplainer(
-                    self.device,
+                cv: GradientShapFCExplainer(self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"],
-                )
-                for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+            }
+            
+        
+        
+        elif explainer_name == "ig_counterfactual":
+            self.explainers = {
+                cv: IGCoFExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+            }
+            
+        elif explainer_name == "deeplift_counterfactual":
+            self.explainers = {
+                cv: DeepLiftCoFExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+            }
+
+        elif explainer_name == "gradientshap_counterfactual":
+            self.explainers = {
+                cv: GradientShapCoFExplainer(self.device,
+                    self.dataset.feature_size,
+                    self.dataset.get_name(),
+                    path=self._get_generator_path(cv),
+                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
             }
 
         else:

@@ -137,9 +137,10 @@ class DeepLiftExplainer(BaseExplainer):
     implementation.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model)
@@ -159,7 +160,17 @@ class DeepLiftExplainer(BaseExplainer):
         score = self.explainer.attribute(
             x, baselines=(x * 0), additional_forward_args=(mask, None, False)
         )
-        score = abs(score.detach().cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score
@@ -174,9 +185,10 @@ class IGExplainer(BaseExplainer):
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -194,7 +206,17 @@ class IGExplainer(BaseExplainer):
         score = self.explainer.attribute(
             x, baselines=(x * 0), additional_forward_args=(mask, None, False)
         )
-        score = np.abs(score.detach().cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score
@@ -209,9 +231,10 @@ class GradientShapExplainer(BaseExplainer):
     implementation. Multiclass case is not implemented.
     """
 
-    def __init__(self, device):
+    def __init__(self, device, p):
         super().__init__(device)
         self.explainer = None
+        self.p = p
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -234,7 +257,17 @@ class GradientShapExplainer(BaseExplainer):
             baselines=(torch.cat([x * 0, x * 1])),
             additional_forward_args=(mask, None, False),
         )
-        score = abs(score.cpu().numpy())
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
 
         torch.backends.cudnn.enabled = orig_cudnn_setting
         return score

@@ -81,7 +81,7 @@ class BaseExplainer(abc.ABC):
         """
         self._init_generators()
         return self.generator.train_generator(
-            train_loader, valid_loader, num_epochs, lr=0.001, weight_decay=0
+            train_loader, valid_loader, num_epochs, lr=0.001, weight_decay=0.001
         )
 
     def test_generators(self, test_loader) -> float | None:
@@ -208,7 +208,7 @@ def gradient_shap(model, inputs, baselines, mask, n_samples=50):
     attributions = grads * (inputs - baselines)
     return attributions
 
-class GradientShapFCExplainer(BaseExplainer):
+class GradientShapCoFExplainer(BaseExplainer):
     """
     The explainer for gradient shap using zeros as the baseline and the captum
     implementation. Multiclass case is not implemented.
@@ -222,7 +222,7 @@ class GradientShapFCExplainer(BaseExplainer):
         self.path = path
         self.forecastor = forecastor
         
-        self.log = logging.getLogger(GradientShapFCExplainer.__name__)
+        self.log = logging.getLogger(GradientShapCoFExplainer.__name__)
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -244,8 +244,7 @@ class GradientShapFCExplainer(BaseExplainer):
         baselines = torch.zeros_like(x).to(self.device)
         
         forecast_result = self.get_forecast_result(x, mask)
-        baselines[:, :, 1:] = forecast_result[:, :, :-1]
-        baselines[:, :, 1:][mask[:,:, 1:] == 0] = x[:, :, :-1][mask[:,:,1:] == 0]
+        baselines[:, :, 1:] = x[:, :, 1:] - (forecast_result[:, :, :-1] - x[:, :, 1:])
         score = gradient_shap(self.base_model, x, baselines, mask, n_samples=50)
         # score = self.explainer.attribute(
         #     x, n_samples=50, stdevs=0.0001, baselines=baselines, additional_forward_args=(False)
@@ -257,10 +256,10 @@ class GradientShapFCExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "gradientshap_forecast"
+        return "gradientshap_counterfactual"
 
 
-class DeepLiftFCExplainer(BaseExplainer):
+class DeepLiftCoFExplainer(BaseExplainer):
     """
     The explainer for the DeepLIFT method using zeros as the baseline and captum for the
     implementation.
@@ -273,7 +272,7 @@ class DeepLiftFCExplainer(BaseExplainer):
         self.path = path
         self.forecastor = forecastor
         
-        self.log = logging.getLogger(DeepLiftFCExplainer.__name__)
+        self.log = logging.getLogger(DeepLiftCoFExplainer.__name__)
 
     def set_model(self, model, set_eval=True):
         super().set_model(model)
@@ -294,9 +293,7 @@ class DeepLiftFCExplainer(BaseExplainer):
         baselines = torch.zeros_like(x).to(self.device)
         
         forecast_result = self.get_forecast_result(x, mask)
-        
-        baselines[:, :, 1:] = forecast_result[:, :, :-1]
-        baselines[:, :, 1:][mask[:,:, 1:] == 0] = x[:, :, :-1][mask[:,:,1:] == 0]
+        baselines[:, :, 1:] = x[:, :, 1:] - (forecast_result[:, :, :-1] - x[:, :, 1:])
         score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(mask, None, False))
         score = abs(score.detach().cpu().numpy())
 
@@ -304,10 +301,10 @@ class DeepLiftFCExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "deeplift_forecast"
+        return "deeplift_counterfactual"
     
     
-class IGFCExplainer(BaseExplainer):
+class IGCoFExplainer(BaseExplainer):
     """
     The explainer for integrated gradients using zeros as the baseline and the captum
     implementation. Multiclass case is not implemented.
@@ -321,7 +318,7 @@ class IGFCExplainer(BaseExplainer):
         self.path = path
         self.forecastor = forecastor
         
-        self.log = logging.getLogger(IGFCExplainer.__name__)
+        self.log = logging.getLogger(IGCoFExplainer.__name__)
 
     def set_model(self, model, set_eval=True):
         super().set_model(model, set_eval=set_eval)
@@ -339,8 +336,7 @@ class IGFCExplainer(BaseExplainer):
         baselines = torch.zeros_like(x).to(self.device)
         
         forecast_result = self.get_forecast_result(x, mask)
-        baselines[:, :, 1:] = forecast_result[:, :, :-1]
-        baselines[:, :, 1:][mask[:,:, 1:] == 0] = x[:, :, :-1][mask[:,:,1:] == 0]
+        baselines[:, :, 1:] = x[:, :, 1:] - (forecast_result[:, :, :-1] - x[:, :, 1:])
         score = self.explainer.attribute(x, baselines=baselines, additional_forward_args=(mask, None, False))
         score = np.abs(score.detach().cpu().numpy())
 
@@ -348,4 +344,4 @@ class IGFCExplainer(BaseExplainer):
         return score
 
     def get_name(self):
-        return "ig_forecast"
+        return "ig_counterfactual"
