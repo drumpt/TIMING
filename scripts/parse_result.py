@@ -104,9 +104,9 @@ def get_metrics_table(basedir, dataset, modeltype, modelformat, explainer_list):
     # Collect results for each explainer
     for explainer in explainer_list:
         csv_dir = f"{basedir}/{modelformat}/{dataset}/{dataset}_{explainer}_{modeltype}_all_masking_0_2345_reversed_new.csv"
-        import os
-        print(f"{csv_dir=}")
-        print(f"{os.path.exists(csv_dir)=}")
+        # import os
+        # print(f"{csv_dir=}")
+        # print(f"{os.path.exists(csv_dir)=}")
         result_df = get_result(csv_dir)
 
         # Extract metrics for each evaluation type
@@ -180,7 +180,8 @@ modelformat_list = ["SEFT", "MTAND"]
 #     "dynamaskset",
 # ]
 explainer_list = [
-    "deeplift", "gradientshap", "ig", "fo", "afo", "fit", "dynamask", "winit", "winitsetzero", "winitsetzerolong", "winitsetcf", "fitsetzero", "fitsetcf", "fozero", "afogen", "afoensemble", "gradientshapensemble", "igensemble"
+    "deeplift", "gradientshap", "ig", "fo", "afo", "fit", "dynamask", "winit", "winitsetzero", "winitsetzerolong", "winitsetcf", "fitsetzero", "fitsetcf", "fozero", "afogen", "afoensemble", "gradientshapensemble", "igensemble",
+    "gradientshap_carryforward", "deeplift_carryforward", "ig_carryforward",
 ]
 
 for modeltype, modelformat in zip(modeltype_list, modelformat_list):

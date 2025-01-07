@@ -5,11 +5,11 @@ test_all_masking() {
     modeltype_list="mtand seft"
     # modeltype_list="gru"
 
-    explainer_list="gradientshap ig"
+    # explainer_list="gradientshap ig"
     # explainer_list="gradientshapensemble igensemble"
     # explainer_list="motif"
     # explainer_list="ig fo afo fit dynamask winit"
-    # explainer_list="gradientshap_carryforward deeplift_carryforward ig_carryforward"
+    explainer_list="gradientshap_carryforward deeplift_carryforward ig_carryforward"
     for modeltype in ${modeltype_list}; do
         for explainer in ${explainer_list}; do
             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
@@ -24,13 +24,13 @@ test_all_masking() {
                 --testbs 25 \
                 --logfile mimic_${explainer}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new \
                 --resultfile mimic_${explainer}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new.csv \
-                2>&1
+                2>&1 &
             wait_n
             i=$((i + 1))
         done
     done
 
-    # # explainer_list="winit winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
+    # explainer_list="winit winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
     # explainer_list="deeplift fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
     # for modeltype in ${modeltype_list}; do
     #     for explainer in ${explainer_list}; do
@@ -61,9 +61,9 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4 5)
+GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=1
-num_max_jobs=4
+i=0
+num_max_jobs=6
 
 test_all_masking
