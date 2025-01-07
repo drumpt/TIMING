@@ -6,7 +6,7 @@ train_gru() {
 }
 
 train_set_functions() {
-    modeltype_list="mtand seft"
+    modeltype_list="mtand seft gru"
     for modeltype in ${modeltype_list}; do
         CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} CUBLAS_WORKSPACE_CONFIG=:4096:8 python -m winit.run \
             --data mimic \
@@ -14,20 +14,18 @@ train_set_functions() {
             --train \
             --batchsize 128 \
             --skipexplain \
-            --outpath output/output_${modeltype}_reversed_new \
-            --ckptpath ckpt/ckpt_${modeltype}_reversed_new \
-            --plotpath plots/plots_${modeltype}_reversed_new \
-            --logpath logs/logs_${modeltype}_reversed_new \
+            --outpath output/output_${modeltype}_all_cf_reversed_new \
+            --ckptpath ckpt/ckpt_${modeltype}_all_cf_reversed_new \
+            --plotpath plots/plots_${modeltype}_all_cf_reversed_new \
+            --logpath logs/logs_${modeltype}_all_cf_reversed_new \
             2>&1 &
         i=$((i + 1))
     done
-    # --cum
-    # --mask std end
 }
 
 GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=6
+i=5
 
 # train_gru
 train_set_functions

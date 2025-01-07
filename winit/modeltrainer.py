@@ -377,6 +377,107 @@ class ModelTrainer:
             recall=recall,
         )
 
+    def get_optimal_cutoff(self, loader, metric, use_all_times: bool) -> EpochResult:
+        multiclass = self.num_classes > 1
+        self.model = self.model.to(self.device)
+        self.model.eval()
+
+        all_labels, all_probs = [], []
+        for batch in loader:
+            signals = torch.Tensor(batch[0].float()).to(self.device)
+            labels = torch.Tensor(
+                batch[1].long() if multiclass else batch[1].float()
+            ).to(self.device)
+            masks = (
+                torch.Tensor(batch[2].float()).to(self.device)
+                if len(batch) > 2
+                else None
+            )
+
+            output = self.model(signals, masks, return_all=use_all_times)
+            prob = self.model.activation(output)
+
+            if use_all_times and not multiclass:
+                output = output[:, 0, :]
+                prob = prob[:, 0, :]
+            if not use_all_times:
+                if labels.ndim > 1:
+                    labels = labels[:, -1:]
+                else:
+                    labels = labels[:, None]
+
+            all_labels.append(labels.detach().cpu().numpy())
+            all_probs.append(prob.detach().cpu().numpy())
+
+        # compile results
+        all_labels = np.concatenate(all_labels).astype(int)
+        all_probs = np.concatenate(all_probs)
+
+        optimal_cutoff = self.calculate_optimal_cutoff(
+            all_labels, all_probs, metric=metric
+        )
+        return optimal_cutoff
+
+    def calculate_metrics(self, y_true, y_pred_proba, cutoff):
+        """
+        Calculate classification metrics for a given cutoff.
+
+        Args:
+            y_true: Array of true binary labels (0 or 1)
+            y_pred_proba: Array of predicted probabilities
+            cutoff: Classification cutoff between 0 and 1
+
+        Returns:
+            Dictionary with metrics (accuracy, precision, recall, f1)
+        """
+        y_pred = (y_pred_proba >= cutoff).astype(int)
+
+        # Calculate confusion matrix
+        tp = np.sum((y_pred == 1) & (y_true == 1))
+        fp = np.sum((y_pred == 1) & (y_true == 0))
+        tn = np.sum((y_pred == 0) & (y_true == 0))
+        fn = np.sum((y_pred == 0) & (y_true == 1))
+
+        # Calculate metrics
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
+        accuracy = (tp + tn) / len(y_true)
+        f1 = (
+            2 * (precision * recall) / (precision + recall)
+            if (precision + recall) > 0
+            else 0
+        )
+
+        return {
+            "cutoff": cutoff,
+            "accuracy": accuracy,
+            "precision": precision,
+            "recall": recall,
+            "f1": f1,
+        }
+
+    def calculate_optimal_cutoff(self, y_true, y_pred_proba, metric="f1"):
+        """
+        Find optimal cutoff based on specified metric.
+
+        Args:
+            y_true: Array of true binary labels (0 or 1)
+            y_pred_proba: Array of predicted probabilities
+            metric: Metric to optimize ('f1', 'accuracy', 'precision', 'recall')
+
+        Returns:
+            optimal_cutoff, metrics_at_optimal_cutoff
+        """
+        cutoffs = np.linspace(0, 1, 100)
+        metrics_list = [
+            self.calculate_metrics(y_true, y_pred_proba, t) for t in cutoffs
+        ]
+
+        # Find cutoff that maximizes the specified metric
+        optimal_idx = np.argmax([m[metric] for m in metrics_list])
+        # return cutoffs[optimal_idx], metrics_list[optimal_idx]
+        return cutoffs[optimal_idx]
+
 
 class ModelTrainerWithCv:
     """
@@ -499,6 +600,25 @@ class ModelTrainerWithCv:
             )
         return accuracies
 
+    def get_optimal_cutoff(self, use_all_times: bool, split, metric) -> Dict[int, EpochResult]:
+        """
+        Return the results of each model on the test sets.
+
+        Args:
+            use_all_times:
+                Indicates whether we use all timesteps for test results.
+        Returns:
+            A dictionary from CV to EpochResult indicating the test results for each CV.
+        """
+        optimal_cutoff_dict = {}
+        for cv, model_trainer in self.model_trainers.items():
+            optimal_cutoff_dict[cv] = model_trainer.get_optimal_cutoff(
+                self.dataset.valid_loaders[cv] if split == "valid" else self.dataset.test_loader,
+                metric=metric,
+                use_all_times=use_all_times,
+            )
+        return optimal_cutoff_dict
+
     def run_inference(
         self,
         data: torch.Tensor | Dict[int, torch.Tensor] | None,
@@ -535,7 +655,9 @@ class ModelTrainerWithCv:
                 mask_cv = torch.tensor(mask[cv])
                 if isinstance(data_cv, torch.Tensor):
                     data_cv = DataLoader(
-                        TensorDataset(data_cv, fake_label_cv, mask_cv), # placeholder for labels
+                        TensorDataset(
+                            data_cv, fake_label_cv, mask_cv
+                        ),  # placeholder for labels
                         batch_size=self.dataset.testbs,
                     )
                 return_dict[cv] = model_trainer.run_inference(

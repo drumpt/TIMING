@@ -5,6 +5,8 @@ test_all_masking() {
     modeltype_list="mtand seft"
     # modeltype_list="gru"
 
+    p=test_f1 # split: valid, test (choice), metric: f1, accuracy, precision, recall (choice)
+
     # explainer_list="gradientshap ig"
     # explainer_list="gradientshapensemble igensemble"
     # explainer_list="motif"
@@ -16,15 +18,16 @@ test_all_masking() {
                 --eval \
                 --data mimic \
                 --cv ${cv} \
+                --p ${p} \
                 --explainerseed ${explainerseed} \
                 --modeltype ${modeltype} \
                 --ckptpath ckpt/ckpt_${modeltype}_reversed_new \
                 --batchsize 128 \
                 --explainer ${explainer} \
                 --testbs 25 \
-                --logfile mimic_${explainer}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new \
-                --resultfile mimic_${explainer}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new.csv \
-                2>&1 &
+                --logfile mimic_${explainer}_${p}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new \
+                --resultfile mimic_${explainer}_${p}_${modeltype}_all_masking_${cv}_${explainerseed}_reversed_new.csv \
+                2>&1
             wait_n
             i=$((i + 1))
         done

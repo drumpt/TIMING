@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import abc
-import logging
 
 import numpy as np
 import torch
@@ -153,7 +152,6 @@ def gradient_shap(model, inputs, baselines, mask, n_samples=50):
     # raise RuntimeError
     if len(predictions.shape) == 1:
         predictions = predictions.unsqueeze(1)
-
     predictions = predictions.view(n_samples, inputs.shape[0], -1)
 
     grad = torch.autograd.grad(
@@ -162,19 +160,6 @@ def gradient_shap(model, inputs, baselines, mask, n_samples=50):
             retain_graph=True
         )
     grads = grad[0].mean(dim=0)
-    # grads = []
-    # for i in range(predictions.size(-1)):   
-    #     grad = torch.autograd.grad(
-    #         outputs=predictions[:, :, i].sum(),
-    #         inputs=noisy_inputs,
-    #         retain_graph=True
-    #     )
-    #     grads.append(torch.abs(grad[0]).detach())
-
-    # grads = torch.stack(grads, dim=-1).mean(dim=-1)  # (n_samples, batch_size, features, time_steps, targets)
-    # grads = grads.mean(dim=0)  # Average over noisy samples
-
-    # Compute attributions by multiplying gradients by the difference between input and baseline
     attributions = grads * (inputs - baselines)
     return attributions
 
@@ -214,7 +199,7 @@ class GradientShapCFExplainer(BaseExplainer):
         if self.p == -1.0:
             score = np.abs(score.detach().cpu().numpy())
         else:
-            predictions = self.base_model(
+            predictions = self.base_model.predict(
                 x.view(-1, x.shape[1], x.shape[2]),
                 mask=mask,
                 return_all=False
@@ -262,7 +247,7 @@ class DeepLiftCFExplainer(BaseExplainer):
         if self.p == -1.0:
             score = np.abs(score.detach().cpu().numpy())
         else:
-            predictions = self.base_model(
+            predictions = self.base_model.predict(
                 x.view(-1, x.shape[1], x.shape[2]),
                 mask=mask,
                 return_all=False
@@ -310,7 +295,7 @@ class IGCFExplainer(BaseExplainer):
         if self.p == -1.0:
             score = np.abs(score.detach().cpu().numpy())
         else:
-            predictions = self.base_model(
+            predictions = self.base_model.predict(
                 x.view(-1, x.shape[1], x.shape[2]),
                 mask=mask,
                 return_all=False

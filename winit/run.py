@@ -8,7 +8,7 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List
 import warnings
-warnings.filterwarnings(action='ignore')
+warnings.filterwarnings(action="ignore")
 
 import pandas as pd
 import torch.cuda
@@ -21,12 +21,7 @@ from winit.dataloader import (
     WinITDataset,
     SimulatedData,
 )
-from winit.explainer.explainers import (
-    BaseExplainer,
-    DeepLiftExplainer,
-    IGExplainer,
-    GradientShapExplainer,
-)
+from winit.explainer.explainers import BaseExplainer
 from winit.explainer.masker import Masker
 from winit.explanationrunner import ExplanationRunner
 from winit.utils import append_df_to_csv, set_seed
@@ -160,7 +155,11 @@ class Params:
                 if "forecast" in explainer or "counterfactual" in explainer:
                     explainer_dict["forecastor"] = self.argdict["forecastor"]
                     generator_dict[explainer] = [explainer_dict]
-                if "ig" in explainer or "deeplift" in explainer or "gradientshap" in explainer:
+                if (
+                    "ig" in explainer
+                    or "deeplift" in explainer
+                    or "gradientshap" in explainer
+                ):
                     explainer_dict["p"] = self.argdict["p"]
                 all_explainer_dict[explainer] = [explainer_dict]
         self._all_explainer_dict = all_explainer_dict
@@ -221,7 +220,7 @@ class Params:
             if isinstance(self._datasets, Mimic):
                 if model_type == "MTAND":
                     lr = 1e-4
-                elif model_type == "SEFT":
+                elif model_type in ["SEFT", "GRU"]:
                     lr = 1e-3
             else:
                 lr = 1e-3
@@ -383,7 +382,9 @@ if __name__ == "__main__":
         "--eval", action="store_true", help="run feature importance evalation"
     )
     parser.add_argument(
-        "--cum", action="store_true", help="run feature importance evalation in cumulative setting (only for int k)"
+        "--cum",
+        action="store_true",
+        help="run feature importance evalation in cumulative setting (only for int k)",
     )
     parser.add_argument(
         "--loglevel",
@@ -490,9 +491,8 @@ if __name__ == "__main__":
         help="Number of samples in generating masked features in  WinIT",
     )
     parser.add_argument("--top_p", type=float, default=0)
-    
-    # carryforward_args
 
+    # carryforward_args
     parser.add_argument(
         "--forecastor",
         type=str,
@@ -500,13 +500,8 @@ if __name__ == "__main__":
         default="linear",
         help="WinIT metrics for divergence of distributions",
     )
-    
-    parser.add_argument(
-        "--p",
-        type=float,
-        default=-1.0,
-        help="p for pseudo label"
-    )
+
+    parser.add_argument("--p", default=-1.0, help="p for pseudo label")
 
     # eval args
     parser.add_argument(
@@ -587,7 +582,7 @@ if __name__ == "__main__":
     try:
         # load data and train model
         dataset.load_data()
-        runner = ExplanationRunner(dataset, device, out_path, ckpt_path, plot_path)
+        runner = ExplanationRunner(argdict, dataset, device, out_path, ckpt_path, plot_path)
         runner.init_model(**model_args)
         use_all_times = not isinstance(dataset, Mimic)
         if train_models:
@@ -600,13 +595,16 @@ if __name__ == "__main__":
         if train_gen:
             generators_to_train = params.generators_to_train
             for explainer_name, explainer_dict_list in generators_to_train.items():
-                for i, explainer_dict in enumerate(explainer_dict_list):         
+                for i, explainer_dict in enumerate(explainer_dict_list):
                     runner.get_explainers(
                         argdict, explainer_name, explainer_dict=explainer_dict
                     )
-                    if "forecast" in explainer_name or "counterfactual" in explainer_name:
+                    if (
+                        "forecast" in explainer_name
+                        or "counterfactual" in explainer_name
+                    ):
                         runner.set_model_for_explainer(set_eval=False)
-                    
+
                     log.info(
                         f"Training Generator...Data={dataset.get_name()}, Explainer={explainer_name}"
                     )

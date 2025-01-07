@@ -32,7 +32,6 @@ from winit.explainer.explainers import (
     MockExplainer,
     IGEnsembleExplainer,
     GradientShapEnsembleExplainer,
-    MotifExplainer,
 )
 from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.explainer.fitexplainers import (
@@ -75,6 +74,7 @@ class ExplanationRunner:
 
     def __init__(
         self,
+        args,
         dataset: WinITDataset,
         device,
         out_path: pathlib.Path,
@@ -96,6 +96,7 @@ class ExplanationRunner:
             plot_path:
                 The path of the files containing plots or numpy arrays.
         """
+        self.args = args
         self.dataset = dataset
         self.device = device
         self.out_path = out_path
@@ -188,6 +189,9 @@ class ExplanationRunner:
             raise RuntimeError("Initialize the model first.")
         self.model_trainers.load_model()
         self._get_test_results(use_all_times)
+        if isinstance(self.args["p"], str):
+            split, metric = self.args["p"].split("_") # split: valid, test (choice), metric: f1, accuracy, precision, recall (choice)
+            self.optimal_cutoff_dict = self._get_optimal_cutoff(use_all_times, split, metric)
 
     def _get_test_results(self, use_all_times: bool) -> None:
         test_results = self.model_trainers.get_test_results(use_all_times)
@@ -201,6 +205,12 @@ class ExplanationRunner:
             f"Average AUC = {np.mean(test_aucs):.4f}\u00b1{np.std(test_aucs):.4f}"
         )
         self.log.info(f"Model AUC on Tests = {test_aucs}.")
+
+    def _get_optimal_cutoff(self, use_all_times: bool, split, metric) -> None:
+        optimal_cutoff_dict = self.model_trainers.get_optimal_cutoff(use_all_times, split, metric)
+        for cv, cutoff in optimal_cutoff_dict.items():
+            self.log.info(f"Optimal cutoff for CV {cv} = {cutoff:.4f}")
+        return optimal_cutoff_dict
 
     def run_inference(
         self,
@@ -358,7 +368,7 @@ class ExplanationRunner:
                     args=args,
                     **kwargs,
                 )
-                
+
         elif explainer_name == "winithidden":
             train_loaders = (
                 self.dataset.train_loaders
@@ -416,12 +426,14 @@ class ExplanationRunner:
 
         elif explainer_name == "ig":
             self.explainers = {
-                cv: IGExplainer(self.device, explainer_dict['p']) for cv in self.dataset.cv_to_use()
+                cv: IGExplainer(self.device, explainer_dict["p"])
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift":
             self.explainers = {
-                cv: DeepLiftExplainer(self.device, explainer_dict['p']) for cv in self.dataset.cv_to_use()
+                cv: DeepLiftExplainer(self.device, explainer_dict["p"])
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "fo":
@@ -474,7 +486,7 @@ class ExplanationRunner:
 
         elif explainer_name == "gradientshap":
             self.explainers = {
-                cv: GradientShapExplainer(self.device, explainer_dict['p'])
+                cv: GradientShapExplainer(self.device, explainer_dict["p"])
                 for cv in self.dataset.cv_to_use()
             }
 
@@ -491,7 +503,7 @@ class ExplanationRunner:
                 )
                 for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "gradientshapensemble":
             self.explainers = {
                 cv: GradientShapEnsembleExplainer(
@@ -506,19 +518,19 @@ class ExplanationRunner:
                 for cv in self.dataset.cv_to_use()
             }
 
-        elif explainer_name == "motif":
-            self.explainers = {
-                cv: MotifExplainer(
-                    self.device,
-                    self.dataset.feature_size,
-                    self.dataset.get_name(),
-                    path=self._get_generator_path(cv),
-                    train_loader=self.dataset.train_loaders[cv],
-                    args=args,
-                    **explainer_dict,
-                )
-                for cv in self.dataset.cv_to_use()
-            }
+        # elif explainer_name == "motif":
+        #     self.explainers = {
+        #         cv: MotifExplainer(
+        #             self.device,
+        #             self.dataset.feature_size,
+        #             self.dataset.get_name(),
+        #             path=self._get_generator_path(cv),
+        #             train_loader=self.dataset.train_loaders[cv],
+        #             args=args,
+        #             **explainer_dict,
+        #         )
+        #         for cv in self.dataset.cv_to_use()
+        #     }
 
         elif explainer_name == "mock":
             self.explainers = {cv: MockExplainer() for cv in self.dataset.cv_to_use()}
@@ -537,78 +549,114 @@ class ExplanationRunner:
 
         elif explainer_name == "ig_carryforward":
             self.explainers = {
-                cv: IGCFExplainer(self.device, explainer_dict['p']) 
+                cv: IGCFExplainer(
+                    self.device,
+                    (
+                        explainer_dict["p"]
+                        if isinstance(explainer_dict["p"], (float, int))
+                        else self.optimal_cutoff_dict[cv]
+                    ),
+                )
                 for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "deeplift_carryforward":
             self.explainers = {
-                cv: DeepLiftCFExplainer(self.device, explainer_dict['p']) 
+                cv: DeepLiftCFExplainer(
+                    self.device,
+                    (
+                        explainer_dict["p"]
+                        if isinstance(explainer_dict["p"], (float, int))
+                        else self.optimal_cutoff_dict[cv]
+                    ),
+                )
                 for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_carryforward":
             self.explainers = {
-                cv: GradientShapCFExplainer(self.device, explainer_dict['p'])
+                cv: GradientShapCFExplainer(
+                    self.device,
+                    (
+                        explainer_dict["p"]
+                        if isinstance(explainer_dict["p"], (float, int))
+                        else self.optimal_cutoff_dict[cv]
+                    ),
+                )
                 for cv in self.dataset.cv_to_use()
             }
 
-
         elif explainer_name == "ig_forecast":
             self.explainers = {
-                cv: IGFCExplainer(self.device,
+                cv: IGFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "deeplift_forecast":
             print(explainer_dict)
             self.explainers = {
-                cv: DeepLiftFCExplainer(self.device,
+                cv: DeepLiftFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_forecast":
             self.explainers = {
-                cv: GradientShapFCExplainer(self.device,
+                cv: GradientShapFCExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
-            
-        
-        
+
         elif explainer_name == "ig_counterfactual":
             self.explainers = {
-                cv: IGCoFExplainer(self.device,
+                cv: IGCoFExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
-            
+
         elif explainer_name == "deeplift_counterfactual":
             self.explainers = {
-                cv: DeepLiftCoFExplainer(self.device,
+                cv: DeepLiftCoFExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
 
         elif explainer_name == "gradientshap_counterfactual":
             self.explainers = {
-                cv: GradientShapCoFExplainer(self.device,
+                cv: GradientShapCoFExplainer(
+                    self.device,
                     self.dataset.feature_size,
                     self.dataset.get_name(),
                     path=self._get_generator_path(cv),
-                    forecastor=explainer_dict["forecastor"]) for cv in self.dataset.cv_to_use()
+                    forecastor=explainer_dict["forecastor"],
+                )
+                for cv in self.dataset.cv_to_use()
             }
 
         else:
@@ -762,8 +810,8 @@ class ExplanationRunner:
                 mask = mask.to(self.device)
                 score = self.explainers[cv].attribute(x, mask)
                 if isinstance(self.explainers[cv].base_model, (mTAND, SeFT)):
-                    score[mask.cpu() == 0] = float('-inf')
-                    
+                    score[mask.cpu() == 0] = float("-inf")
+
                 importance_scores.append(score)
 
             importance_scores = np.concatenate(importance_scores, 0)
@@ -902,15 +950,27 @@ class ExplanationRunner:
 
                 original_auc = metrics.roc_auc_score(y_test, orig_pred, average="macro")
                 modified_auc = metrics.roc_auc_score(y_test, new_pred, average="macro")
-                self.log.info(
-                    f"cv={cv}, original auc={original_auc:.8f}, modified auc={modified_auc:.8f}"
+                auc_drop = original_auc - modified_auc
+
+                original_auprc = metrics.average_precision_score(
+                    y_test, orig_pred, average="macro"
                 )
+                modified_auprc = metrics.average_precision_score(
+                    y_test, new_pred, average="macro"
+                )
+                auprc_drop = original_auprc - modified_auprc
 
                 avg_pred_diff = np.abs(orig_pred - new_pred).mean().item()
-                auc_drop = original_auc - modified_auc
                 avg_mask_count = (
                     masker.all_masked_count[cv].sum() / len(x_test)
                 ).item()
+
+                self.log.info(
+                    f"cv={cv}, original auc={original_auc:.8f}, modified auc={modified_auc:.8f}"
+                )
+                self.log.info(
+                    f"cv={cv}, original auprc={original_auprc:.8f}, modified auprc={modified_auprc:.8f}"
+                )
 
                 mask_array_path = self._get_mask_array_path()
                 mask_array_path.mkdir(parents=True, exist_ok=True)
@@ -927,6 +987,7 @@ class ExplanationRunner:
                 df[cv] = pd.Series(
                     {
                         "auc_drop": auc_drop,
+                        "auprc_drop": auprc_drop,
                         "avg_pred_diff": avg_pred_diff,
                         "avg_masked_count": avg_mask_count,
                     }
