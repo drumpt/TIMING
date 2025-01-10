@@ -29,6 +29,7 @@ from winit.explainer.explainers import (
     AFOGenExplainer,
     AFOEnsembleExplainer,
     GradientShapExplainer,
+    KernelShapExplainer,
     MockExplainer,
     IGEnsembleExplainer,
     GradientShapEnsembleExplainer,
@@ -50,6 +51,7 @@ from winit.explainer.carryforward_explainers import (
     GradientShapCFExplainer,
     DeepLiftCFExplainer,
     IGCFExplainer,
+    KernelShapCFExplainer
 )
 from winit.explainer.forecast_explainers import (
     GradientShapFCExplainer,
@@ -489,6 +491,12 @@ class ExplanationRunner:
                 cv: GradientShapExplainer(self.device, explainer_dict["p"])
                 for cv in self.dataset.cv_to_use()
             }
+            
+        elif explainer_name == "kernelshap":
+            self.explainers = {
+                cv: KernelShapExplainer(self.device, explainer_dict["p"])
+                for cv in self.dataset.cv_to_use()
+            }
 
         elif explainer_name == "igensemble":
             self.explainers = {
@@ -576,6 +584,19 @@ class ExplanationRunner:
         elif explainer_name == "gradientshap_carryforward":
             self.explainers = {
                 cv: GradientShapCFExplainer(
+                    self.device,
+                    (
+                        explainer_dict["p"]
+                        if isinstance(explainer_dict["p"], (float, int))
+                        else self.optimal_cutoff_dict[cv]
+                    ),
+                )
+                for cv in self.dataset.cv_to_use()
+            }
+            
+        elif explainer_name == "kernelshap_carryforward":
+            self.explainers = {
+                cv: KernelShapCFExplainer(
                     self.device,
                     (
                         explainer_dict["p"]

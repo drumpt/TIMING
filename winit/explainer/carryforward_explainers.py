@@ -9,7 +9,7 @@ from winit.explainer.generator.generator import GeneratorTrainingResults
 from winit.models import TorchModel
 from winit.utils import resolve_device
 
-from captum.attr import IntegratedGradients, DeepLift
+from captum.attr import IntegratedGradients, DeepLift, KernelShap
 
 
 
@@ -310,3 +310,77 @@ class IGCFExplainer(BaseExplainer):
 
     def get_name(self):
         return "ig_carryforward"
+    
+class KernelShapCFExplainer(BaseExplainer):
+    """
+    The explainer for the DeepLIFT method using zeros as the baseline and captum for the
+    implementation.
+    """
+
+    def __init__(self, device, p):
+        super().__init__(device)
+        self.explainer = None
+        self.p = p
+        self.log = logging.getLogger(self.get_name())
+
+    def set_model(self, model, set_eval=True):
+        super().set_model(model)
+        self.explainer = KernelShap(self.base_model.predict_diff)
+
+    def attribute(self, x, mask):
+        self.base_model.zero_grad()
+        self.base_model.eval()
+
+        # Save and restore cudnn enabled
+        orig_cudnn_setting = torch.backends.cudnn.enabled
+        torch.backends.cudnn.enabled = False
+
+        assert (
+            self.base_model.num_states == 1
+        ), "TODO: Implement retrospective for > 1 class"
+        batch_size, _, t_len = x.shape
+        score = torch.zeros_like(x)
+        baselines[:, :, 1:] = x[:, :, :-1]
+        
+        timesteps = (
+            torch.linspace(0, 1, t_len, device=x.device)
+            .unsqueeze(0)
+            .repeat(batch_size, 1)
+        )
+        
+        prev_predict = self.base_model.predict(x[:, :, :1], mask[:, :, :1], timesteps[:, :1], return_all=False)
+        
+        for t in range(1, t_len):
+            input = x[:, :, t:t+1]
+            fixed_input = x[:, :, :t]
+            mask_hat = mask.clone()[:, :,:t+1]
+            timesteps_hat = timesteps.clone()[:, :t+1]
+            
+            baseline = baselines[:, :, t:t+1]
+            score_t = self.explainer.attribute(
+                input, baselines=baseline, additional_forward_args=(fixed_input, prev_predict, mask_hat, timesteps_hat, False)
+            )
+            
+            prev_predict = self.base_model.predict(x[:, :, :t+1], mask[:, :, :t+1], timesteps[:, :t+1], return_all=False)
+            
+            score[:, :, t] = score_t[:, :, 0]
+        
+        if self.p == -1.0:
+            score = np.abs(score.detach().cpu().numpy())
+        else:
+            predictions = self.base_model.predict(
+                x.view(-1, x.shape[1], x.shape[2]),
+                mask=mask,
+                return_all=False
+            ).reshape(-1)
+            zero_list = np.where(predictions.detach().cpu().numpy() < self.p)
+            score[zero_list] = -1 * score[zero_list]
+            score = score.detach().cpu().numpy()
+
+        torch.backends.cudnn.enabled = orig_cudnn_setting
+        
+        self.log.info("Batch attribute done")
+        return score
+
+    def get_name(self):
+        return "kernelshap_carryforward" + f"_pseudo_{self.p}"

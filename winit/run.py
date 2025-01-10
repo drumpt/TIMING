@@ -160,6 +160,7 @@ class Params:
                     "ig" in explainer
                     or "deeplift" in explainer
                     or "gradientshap" in explainer
+                    or "kernelshap" in explainer
                 ):
                     explainer_dict["p"] = self.argdict["p"]
                 all_explainer_dict[explainer] = [explainer_dict]

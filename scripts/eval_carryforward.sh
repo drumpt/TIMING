@@ -29,8 +29,9 @@ test_all_masking() {
         # explainer_list="winit winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
         # explainer_list="deeplift deeplift_carryforward deeplift_forecast fo afo fit dynamask winit winitsetzero winitsetzerolong winitsetcf fitsetzero fitsetcf fozero"
         # explainer_list="winithidden deeplift_forecast gradientshap_forecast ig_forecast"
-        explainer_list="ig deeplift gradientshap ig_carryforward deeplift_carryforward gradientshap_carryforward "
-        p_list="0.0 0.1 0.2 0.5 1.0"
+        # explainer_list="ig deeplift gradientshap ig_carryforward deeplift_carryforward gradientshap_carryforward "
+        explainer_list="kernelshap"
+        p_list="-1.0 0.0 0.05 0.1 0.2 0.3 0.5 1.0"
         for modeltype in ${modeltype_list}; do
             for explainer in ${explainer_list}; do
                 for p in ${p_list}; do
@@ -40,7 +41,7 @@ test_all_masking() {
                         --cv ${cv} \
                         --explainerseed ${explainerseed} \
                         --modeltype ${modeltype} \
-                        --ckptpath ckpt \
+                        --ckptpath ckpt/ckpt_${modeltype}_reversed_new \
                         --batchsize 100 \
                         --explainer ${explainer} \
                         --p ${p} \
@@ -64,9 +65,9 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4 5)
+GPUS=(4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=6
+num_max_jobs=4
 
 test_all_masking
