@@ -46,7 +46,7 @@ class StateClassifier(nn.Module):
             nn.Linear(self.hidden_size, self.n_state),
         )
 
-    def forward(self, x, return_all: bool = False):
+    def forward(self, x, mask=None, timesteps=None, return_all: bool = False):
         if self.rnn_type == "GRU":
             all_encodings, encoding = self.rnn(x)
         else:
@@ -113,10 +113,12 @@ class StateClassifierNet(Net):
 
     def step(self, batch, batch_idx, stage):
         t = th.randint(batch[1].shape[-1], (1,)).item()
-        x, y = batch
+        x, y, mask = batch
         x = x[:, : t + 1]
         y = y[:, t]
-        y_hat = self(x)
+        if mask is not None:
+            mask = mask[:, : t+1]
+        y_hat = self(x, mask=mask)
         loss = self.loss(y_hat, y)
 
         for metric in ["acc", "pre", "rec", "auroc"]:
@@ -126,5 +128,5 @@ class StateClassifierNet(Net):
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x, y = batch
-        return self(x)
+        x, y, mask = batch
+        return self(x, mask=mask)

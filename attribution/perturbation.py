@@ -93,6 +93,7 @@ class FadeMovingAverage(Perturbation):
         # X = (nm_sample, T, num_features)
         # Compute the moving average for each feature and concatenate it to create a tensor with X's shape
         moving_average = torch.mean(X, dim=1).reshape(1, num_samples, 1, N_features).to(self.device)
+        
         # The perturbation is just an affine combination of the input and the previous tensor weighted by the mask
         X_pert = extremal_tensor * X.unsqueeze(0) + (1 - extremal_tensor) * moving_average
         # X_pert (N_area, num_samples, T, N_features)

@@ -55,6 +55,9 @@ if __name__ == "__main__":
     true_saliency[25:50, 4*2:, 1:2] = 1
     true_saliency[50:, 0*2:2*2, 0:1], true_saliency[50:, 0*2:2*2, 2:] = 1, 1
     print("-===============", true_saliency.sum())
+
+    import os
+    os.makedirs("./plot/demo2plot", exist_ok=True)
     for i in range(args.bs):
         plot_example_box(true_saliency, i, "./plot/demo2plot/true_{}.png".format(i))
 

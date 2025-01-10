@@ -26,7 +26,11 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 ## Installation instructions
 
 ```shell script
+# Add from Hyeongwon
+conda create -n contralsp python=3.10
+conda activate contralsp
 pip install -r requirement.txt
+pip install -U tensorboardX
 ```
 The requirements.txt file can be used to install the necessary packages into a virtual environment.
 
