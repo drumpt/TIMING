@@ -1,3 +1,6 @@
 data
 *.csv
 plot
+results_gate
+model
+lightning_logs
