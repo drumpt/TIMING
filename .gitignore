@@ -1,6 +1,6 @@
-data
+data/
 *.csv
-plot
-results_gate
-model
-lightning_logs
+plot/
+results_gate/
+model/
+lightning_logs/
