@@ -89,6 +89,7 @@ class TorchModel(nn.Module, abc.ABC):
 
     def predict_diff(self, input, fixed_input, prev_predict, mask=None, timesteps=None, return_all=True):
         input = torch.cat((input, fixed_input), dim=2)
+        
         return self.activation(self.forward(input, mask, timesteps, return_all)) - prev_predict
                          
 class ConvClassifier(TorchModel):
