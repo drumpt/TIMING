@@ -705,6 +705,15 @@ def main(
 
     # Dict for baselines
     baselines_dict = {0: "Average", 1: "Zeros"}
+    
+    data_mask=mask_test
+    data_len, t_len, _ = x_test.shape
+        
+    timesteps=(
+        th.linspace(0, 1, t_len, device=x_test.device)
+        .unsqueeze(0)
+        .repeat(data_len, 1)
+    )
 
     with open(output_file, "a") as fp, lock:
         for i, baselines in enumerate([x_avg, 0.0]):
@@ -716,7 +725,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
-                        mask=mask_test
+                        additional_forward_args=(data_mask, timesteps, False)
                     )
                     comp = comprehensiveness(
                         classifier,
@@ -724,7 +733,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
-                        mask=mask_test
+                        additional_forward_args=(data_mask, timesteps, False)
                     )
                     ce = cross_entropy(
                         classifier,
@@ -732,7 +741,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
-                        mask=mask_test
+                        additional_forward_args=(data_mask, timesteps, False)
                     )
                     l_odds = log_odds(
                         classifier,
@@ -740,7 +749,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
-                        mask=mask_test
+                        additional_forward_args=(data_mask, timesteps, False)
                     )
                     suff = sufficiency(
                         classifier,
@@ -748,7 +757,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
-                        mask=mask_test
+                        additional_forward_args=(data_mask, timesteps, False)
                     )
 
                     fp.write(str(seed) + ",")
