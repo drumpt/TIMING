@@ -1,5 +1,6 @@
 import sys
 from os import path
+from pathlib import Path
 print(path.dirname( path.dirname( path.abspath(__file__) ) ))
 sys.path.append(path.dirname( path.dirname( path.abspath(__file__) ) ))
 
@@ -14,6 +15,7 @@ from utils.tools import print_results
 
 from attribution.gate_mask import GateMask
 from attribution.gatemasknn import *
+from attribution.motif import ShapeletExplainer
 from argparse import ArgumentParser
 from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime
 from pytorch_lightning import Trainer, seed_everything
@@ -62,6 +64,8 @@ def main(
     output_file: str = "results.csv",
     model_type: str = "state",
     testbs: int = 0,
+    skip_train_motif: bool = True,
+    skip_train_timex: bool = True,
 ):
     # If deterministic, seed everything
     if deterministic:
@@ -115,6 +119,7 @@ def main(
         x_train = mimic3.preprocess(split="train")["x"].to(device)
         x_test = mimic3.preprocess(split="test")["x"].to(device)
         y_test = mimic3.preprocess(split="test")["y"].to(device)
+        mask_train = mimic3.preprocess(split="train")["mask"].to(device)
         mask_test = mimic3.preprocess(split="test")["mask"].to(device)
 
     # Switch to eval
@@ -605,14 +610,22 @@ def main(
                     x_batch,
                     additional_forward_args=(data_mask, timesteps, False),
                 )
+            partial_targets = th.argmax(partial_targets, -1)
+                
             baselines = th.zeros_like(x_batch).to(x_batch.device)
             baselines[:, 1:, :] = x_batch[:, :-1, :]
             
+            # print(baselines.shape)
+            # print(partial_targets.shape)
+            # print(data_mask.shape)
+            # print(timesteps.shape)
+            # raise RuntimeError
             attr_batch = explainer.attribute(
                 baselines, 
                 baselines=(baselines * 0),
                 target=partial_targets,
-                additional_forward_args=(data_mask, timesteps, False))
+                additional_forward_args=(data_mask, timesteps, False)
+            )
             
             attr_batch += explainer.attribute(
                 x_batch,
@@ -695,6 +708,36 @@ def main(
         attr["retain"] = (
             explainer.attribute(x_test, target=y_test, additional_forward_args=(data_mask, timesteps, False)).abs().to(device)
         )
+        
+    if "motif_ig" in explainers:
+        explainer = ShapeletExplainer(
+            model=classifier,
+            base_explainer="ig",
+            device=x_test.device,
+            num_features=31,
+            num_classes=2,
+            data_name='mimic',
+            path=Path('./motif/'),
+        )
+
+        train_dataset = TensorDataset(x_train, x_train, mask_train)
+        train_loader = DataLoader(train_dataset, batch_size=testbs, shuffle=True)
+        explainer._discover_shapelets(train_loader)
+
+        integrated_gradients = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            
+            attr_batch = explainer.attribute(
+                x_batch,
+                data_mask
+            )
+            
+            integrated_gradients.append(attr_batch)
+        
+        attr["motif_ig"] = th.cat(integrated_gradients, dim=0)
 
     # Classifier and x_test to cpu
     classifier.to("cpu")
@@ -780,6 +823,8 @@ def main(
         result = attr[key]
         if isinstance(result, tuple): result = result[0]
         np.save('./results_gate/{}_result_{}_{}.npy'.format(key, fold, seed), result.detach().cpu().numpy())
+    
+    print(f"{explainers} done")
 
 
 def parse_args():
@@ -877,11 +922,33 @@ def parse_args():
         type=int,
         default=200
     )
+    parser.add_argument(
+        "--skip_train_motif",
+        action='store_true'
+    )
+    parser.add_argument(
+        "--skip_train_timex",
+        action='store_true'
+    )
     return parser.parse_args()
 
 
+def set_seed(seed):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    np.random.default_rng(seed)
+    th.manual_seed(seed)
+    th.cuda.manual_seed(seed)
+    th.cuda.manual_seed_all(seed)
+    th.backends.cudnn.deterministic = True
+    th.backends.cudnn.benchmark = False
+
+    print(f"set seed as {seed}")
+
 if __name__ == "__main__":
     args = parse_args()
+    set_seed(args.seed)
     main(
         explainers=args.explainers,
         areas=args.areas,
@@ -894,6 +961,8 @@ if __name__ == "__main__":
         lambda_2=args.lambda_2,
         output_file=args.output_file,
         model_type=args.model_type,
-        testbs=args.testbs
+        testbs=args.testbs,
+        skip_train_motif=args.skip_train_motif,
+        skip_train_timex=args.skip_train_timex
     )
 
