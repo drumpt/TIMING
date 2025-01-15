@@ -763,6 +763,8 @@ class Mimic3(DataModule):
 
         # Normalise
         features = (features - self._mean) / (self._std + EPS)
+        
+        # features[masks==0] = 0
 
         return {
             "x": features.float(),

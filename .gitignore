@@ -4,3 +4,4 @@ plot/
 results_gate/
 model/
 lightning_logs/
+model_zero/

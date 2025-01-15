@@ -60,7 +60,8 @@ def main(
     lambda_1: float = 1.0,
     lambda_2: float = 1.0,
     output_file: str = "results.csv",
-    model_type: str = "state"
+    model_type: str = "state",
+    testbs: int = 0,
 ):
     # If deterministic, seed everything
     if deterministic:
@@ -131,6 +132,10 @@ def main(
     # Create dict of attributions
     attr = dict()
     
+    from torch.utils.data import DataLoader, TensorDataset
+    test_dataset = TensorDataset(x_test, mask_test)
+    test_loader = DataLoader(test_dataset, batch_size=testbs, shuffle=False)
+    
     if model_type == "state":
         temporal_additional_forward_args = (False, False, False)
         data_mask=None
@@ -140,7 +145,7 @@ def main(
         data_mask=mask_test
         data_len, t_len, _ = x_test.shape
         timesteps=(
-            th.linspace(0, 1, t_len, device=x.device)
+            th.linspace(0, 1, t_len, device=x_test.device)
             .unsqueeze(0)
             .repeat(data_len, 1)
         )
@@ -309,15 +314,319 @@ def main(
 
     if "integrated_gradients" in explainers:
         explainer = TimeForwardTunnel(IntegratedGradients(classifier))
-        attr["integrated_gradients"] = explainer.attribute(
-            x_test,
-            baselines=x_test * 0,
-            internal_batch_size=200,
-            additional_forward_args=(data_mask, timesteps, False),
-            temporal_additional_forward_args=temporal_additional_forward_args,
-            task="binary",
-            show_progress=True,
-        ).abs()
+
+        integrated_gradients = []
+
+        # Iterate over the DataLoader to process data in batches
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            # Calculate Integrated Gradients for the current batch
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=x_batch * 0,
+                additional_forward_args=(data_mask, timesteps, False),
+                temporal_additional_forward_args=temporal_additional_forward_args,
+                task="binary",
+                show_progress=False  # Disable progress bar for individual batches
+            ).abs()
+            
+            # Append the IG attributes of the current batch to the list
+            integrated_gradients.append(attr_batch.cpu())  # Move to CPU if necessary
+        
+        # Concatenate all batch IG attributes into a single tensor
+        attr["integrated_gradients"] = th.cat(integrated_gradients, dim=0)
+
+        
+    if "integrated_gradients_fixed" in explainers:
+        explainer = TimeForwardTunnel(IntegratedGradients(classifier))
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            attr_batch = explainer.attribute(
+                x_test,
+                baselines=x_test * 0,
+                additional_forward_args=(data_mask, timesteps, False),
+                temporal_additional_forward_args=temporal_additional_forward_args,
+                task="binary",
+                show_progress=True,
+            )
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_fixed"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_point" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                for f in range(x_batch.shape[2]):
+                    baselines = x_batch.clone()
+                    baselines[:, t, f] = 0
+                    attr_batch[:, t, f] = explainer.attribute(
+                        x_batch,
+                        baselines=baselines,
+                        target=partial_targets,
+                        additional_forward_args=(data_mask, timesteps, False),
+                    )[:, t, f]
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_point"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_online" in explainers:
+        explainer = IntegratedGradients(classifier)
+
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                baselines = x_batch.clone()
+                baselines[:, t, :] = 0
+                attr_batch[:, t, :] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, t, :]
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_online"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_feature" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for f in range(x_batch.shape[2]):
+                baselines = x_batch.clone()
+                baselines[:, :, f] = 0
+                attr_batch[:, :, f] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, :, f]
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_feature"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_online_feature" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                # Get model outputs
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                baselines = x_batch.clone()
+                baselines[:, t, :] = 0
+                attr_batch[:, t, :] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, t, :]
+            
+            for f in range(x_batch.shape[2]):
+                baselines = x_batch.clone()
+                baselines[:, :, f] = 0
+                attr_batch[:, :, f] += explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, :, f]
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_online_feature"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_base" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=x_batch * 0,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+        
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_base"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_base_cf" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            baselines = th.zeros_like(x_batch).to(x_batch.device)
+            baselines[:, 1:, :] = x_batch[:, :-1, :]
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=baselines,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+                
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_base_cf"] = th.cat(integrated_gradients, dim=0)
+        
+    if "integrated_gradients_base_zero_cf" in explainers:
+        explainer = IntegratedGradients(classifier)
+
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            baselines = th.zeros_like(x_batch).to(x_batch.device)
+            baselines[:, 1:, :] = x_batch[:, :-1, :]
+            
+            attr_batch = explainer.attribute(
+                baselines, 
+                baselines=(baselines * 0),
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False))
+            
+            attr_batch += explainer.attribute(
+                x_batch,
+                baselines=baselines,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+                
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_base_zero_cf"] = th.cat(integrated_gradients, dim=0)
 
     if "lime" in explainers:
         explainer = TimeForwardTunnel(Lime(classifier))
@@ -407,6 +716,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
+                        mask=mask_test
                     )
                     comp = comprehensiveness(
                         classifier,
@@ -414,6 +724,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
+                        mask=mask_test
                     )
                     ce = cross_entropy(
                         classifier,
@@ -421,6 +732,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
+                        mask=mask_test
                     )
                     l_odds = log_odds(
                         classifier,
@@ -428,6 +740,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
+                        mask=mask_test
                     )
                     suff = sufficiency(
                         classifier,
@@ -435,6 +748,7 @@ def main(
                         attributions=v.cpu(),
                         baselines=baselines,
                         topk=topk,
+                        mask=mask_test
                     )
 
                     fp.write(str(seed) + ",")
@@ -549,6 +863,11 @@ def parse_args():
         default="state",
         choices=["state", "mtand", "seft"],
     )
+    parser.add_argument(
+        "--testbs",
+        type=int,
+        default=200
+    )
     return parser.parse_args()
 
 
@@ -565,6 +884,7 @@ if __name__ == "__main__":
         lambda_1=args.lambda_1,
         lambda_2=args.lambda_2,
         output_file=args.output_file,
-        model_type=args.model_type
+        model_type=args.model_type,
+        testbs=args.testbs
     )
 
