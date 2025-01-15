@@ -655,10 +655,9 @@ class ShapeletExplainer:
 
         # If pred is (B, C), pick the class with max logit/prob
         # Otherwise, if pred is already (B,), assume it's the final label
-        if pred.dim() == 2:
-            predicted_label = torch.argmax(pred, dim=1)  # shape = (B,)
-        else:
-            predicted_label = pred  # shape = (B,)
+
+        predicted_label = torch.argmax(pred, dim=1)  # shape = (B,)
+
 
         for i in range(batch_size):
             cls_id = predicted_label[i].item()
@@ -700,22 +699,24 @@ class ShapeletExplainer:
                         baseline[i, window_idx : window_idx + length, feat] = float('nan')
 
         # Forward fill NaN
-        nan_mask = torch.isnan(baseline)
-        if nan_mask.any():
-            filled = torch.zeros_like(baseline)
-            for i in range(batch_size):
-                for feat in range(n_features):
-                    valid_mask = ~nan_mask[i, :, feat]
-                    if not valid_mask.any():
-                        # If all are NaN, fill with zeros
-                        filled[i, :, feat] = 0.0
-                        continue
-                    current_val = 0.0
-                    for t in range(seq_length):
-                        if valid_mask[t]:
-                            current_val = baseline[i, t, feat]
-                        filled[i, t, feat] = current_val
-            baseline = filled
+        # nan_mask = torch.isnan(baseline)
+        # if nan_mask.any():
+        #     filled = torch.zeros_like(baseline)
+        #     for i in range(batch_size):
+        #         for feat in range(n_features):
+        #             valid_mask = ~nan_mask[i, :, feat]
+        #             if not valid_mask.any():
+        #                 # If all are NaN, fill with zeros
+        #                 filled[i, :, feat] = 0.0
+        #                 continue
+        #             current_val = 0.0
+        #             for t in range(seq_length):
+        #                 if valid_mask[t]:
+        #                     current_val = baseline[i, t, feat]
+        #                 filled[i, t, feat] = current_val
+        #     baseline = filled
+        
+        baseline[torch.isnan(baseline)] = 0
 
         return baseline
 
@@ -752,7 +753,7 @@ class ShapeletExplainer:
             )
             results.append(chunk_results)
 
-        return np.concatenate(results, axis=0)
+        return torch.cat(results, dim=0)
 
     def _process_chunk(self, x_chunk, mask_chunk, baseline_chunk, pred_chunk):
         n_gpus = torch.cuda.device_count()
@@ -774,7 +775,7 @@ class ShapeletExplainer:
                         )
                     )
                 results = [f.result() for f in futures]
-            return np.concatenate(results, axis=0)
+            return torch.cat(results, dim=0)
         else:
             return self._process_gpu_chunk(
                 x_chunk, mask_chunk, baseline_chunk, pred_chunk, "cpu"
@@ -796,7 +797,7 @@ class ShapeletExplainer:
         return self.explainer.attribute(x, 
                                         baselines=baseline,
                                         target=partial_targets,
-                                        additional_forward_args=(mask, None, False)).detach().cpu().numpy()
+                                        additional_forward_args=(mask, None, False)).detach().cpu()
 
     # -------------------------------------------------------------------------
     # Shapelet discovery (B, T, N) version
