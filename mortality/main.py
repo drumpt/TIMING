@@ -138,17 +138,17 @@ def main(
     
     if model_type == "state":
         temporal_additional_forward_args = (False, False, False)
-        data_mask=None
-        timesteps=None
     else:
         temporal_additional_forward_args = (True, True, False)
-        data_mask=mask_test
-        data_len, t_len, _ = x_test.shape
-        timesteps=(
-            th.linspace(0, 1, t_len, device=x_test.device)
-            .unsqueeze(0)
-            .repeat(data_len, 1)
-        )
+    
+    data_mask=mask_test
+    data_len, t_len, _ = x_test.shape
+        
+    timesteps=(
+        th.linspace(0, 1, t_len, device=x_test.device)
+        .unsqueeze(0)
+        .repeat(data_len, 1)
+    )
         
 
     if "deep_lift" in explainers:
