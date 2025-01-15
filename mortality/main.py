@@ -706,7 +706,7 @@ def main(
     # Dict for baselines
     baselines_dict = {0: "Average", 1: "Zeros"}
     
-    data_mask=mask_test
+    data_mask=mask_test.to("cpu")
     data_len, t_len, _ = x_test.shape
         
     timesteps=(
