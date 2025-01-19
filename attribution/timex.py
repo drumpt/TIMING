@@ -135,6 +135,8 @@ class TimeXModel(nn.Module):
                 d_inp = d_inp,
                 n_classes = self.n_classes,
             )
+        elif self.ablation_parameters.archtype == 'gru':
+            pass
 
         # For decoder, first value [0] is actual value, [1] is mask value (predicted logit)
 

@@ -117,7 +117,7 @@ class GateMaskNN(nn.Module):
         mu = self.mask[
             self.batch_size * batch_idx : self.batch_size * (batch_idx + 1)
         ]
-        noise = th.randn(x.shape)
+        noise = th.randn(x.shape).to(mu.device)
         mask = mu + self.sigma * noise.normal_() * self.training
         mask = self.refactor_mask(mask, x)
 
@@ -338,7 +338,7 @@ class GateMaskNet(Net):
 
     def _triplet_loss(self, condition):
         _, ts_dim, num_dim = condition.shape
-        points = condition.reshape(-1, ts_dim * num_dim).detach().numpy()
+        points = condition.reshape(-1, ts_dim * num_dim).detach().cpu().numpy()
         num_cluster = 2
         kmeans = KMeans(n_clusters=num_cluster)
         kmeans.fit(points)

@@ -575,12 +575,17 @@ class MotifVisualizer:
 # from torch.utils.data import DataLoader
 # from concurrent.futures import ThreadPoolExecutor
 
+# --------------------------------------------
+
+
+
 import pathlib
 import torch
 import numpy as np
 from typing import List, Dict, Optional
 from torch.utils.data import DataLoader
 from concurrent.futures import ThreadPoolExecutor
+from collections import defaultdict
 
 
 class ShapeletExplainer:
@@ -754,6 +759,132 @@ class ShapeletExplainer:
             results.append(chunk_results)
 
         return torch.cat(results, dim=0)
+    # def attribute(self, x: torch.Tensor, mask: torch.Tensor):
+    #     """
+    #     1) Predict classes for all samples in x => group by class.
+    #     2) For each class c, and each shapelet s in class_shapelets[c]:
+    #        - Remove only that shapelet s for the sub-batch => baseline
+    #        - Run IG => store
+    #     3) Return a structure that contains IG for each (sample, shapelet).
+        
+    #     x: (N, T, F)
+    #     mask: (N, T, F)
+        
+    #     Returns:
+    #         A structure that holds IG for each shapelet. For instance, 
+    #         a dict: {
+    #            c -> {
+    #               "shapelet_idx_0": (B_c, T, F),
+    #               "shapelet_idx_1": (B_c, T, F),
+    #               ...
+    #            }
+    #         }
+    #         or a big tensor with shape (N, max_shapelets_c, T, F).
+    #     """
+    #     x = x.to(self.device)
+    #     mask = mask.to(self.device)
+    #     N, T, F = x.shape
+
+    #     # 1) Predict classes for all N samples
+    #     with torch.no_grad():
+    #         pred = self.base_model(x, mask=mask, return_all=False)  # shape (N,C) or (N,)
+
+    #     pred_labels = torch.argmax(pred, dim=1)  # shape (N,)
+
+
+    #     # 2) Group sample indices by predicted class
+    #     class_to_indices = defaultdict(list)
+    #     for i, lbl in enumerate(pred_labels):
+    #         class_to_indices[lbl.item()].append(i)
+
+    #     # We'll store results in a dictionary for clarity:
+    #     # ig_results[c][shapelet_index] = tensor of shape (B_c, T, F)
+    #     # where B_c is the # of samples predicted as class c
+    #     ig_results = {}
+
+    #     # 3) For each class c
+    #     for c, idx_list in class_to_indices.items():
+    #         idx_tensor = torch.tensor(idx_list, device=self.device)  # shape (B_c,)
+    #         B_c = len(idx_list)
+
+    #         x_c = x[idx_tensor]         # shape (B_c, T, F)
+    #         mask_c = mask[idx_tensor]   # shape (B_c, T, F)
+
+    #         shapelets_for_c = self.class_shapelets.get(c, [])
+    #         if not shapelets_for_c:
+    #             continue
+
+    #         ig_results[c] = {}
+
+    #         # 4) For each shapelet in that class
+    #         for s_idx, shapelet in enumerate(shapelets_for_c):
+    #             # create baseline: remove only this shapelet from x_c
+    #             baseline_c = self._create_single_shapelet_baseline(
+    #                 x_c, mask_c, shapelet
+    #             )  # (B_c, T, F)
+
+    #             # run IG from baseline_c -> x_c in one pass
+    #             ig_c_s = self.explainer.attribute(
+    #                 x_c,
+    #                 baselines=baseline_c,
+    #                 target=c,  # or partial_targets if you prefer
+    #                 additional_forward_args=(mask_c, None, False),
+    #             ).detach().cpu()
+    #             # shape (B_c, T, F)
+
+    #             ig_results[c][f"shapelet_{s_idx}"] = ig_c_s
+
+    #     return ig_results
+
+    # # ----------------------------------------------------------------------
+    # # Removes *one* shapelet from (B_c, T, F) sub-batch in a vectorized way
+    # # ----------------------------------------------------------------------
+    # def _create_single_shapelet_baseline(
+    #     self,
+    #     x_c: torch.Tensor,      # (B_c, T, F)
+    #     mask_c: torch.Tensor,   # (B_c, T, F)
+    #     shapelet: dict
+    # ) -> torch.Tensor:
+    #     """
+    #     Remove only 'shapelet' from the sub-batch x_c => baseline.
+    #     """
+    #     baseline = x_c.clone()
+    #     B_c, T, F = baseline.shape
+
+    #     length = shapelet["length"]
+    #     pattern = shapelet["pattern"].to(self.device)  # shape (length, ) 
+    #                                                    # or possibly (length, Ffeat?)
+
+    #     # Example: single-feature shapelet
+    #     for b_idx in range(B_c):
+    #         for f_idx in range(F):
+    #             seq_1d = baseline[b_idx, :, f_idx]  # shape (T,)
+    #             msk_1d = mask_c[b_idx, :, f_idx]    # shape (T,)
+
+    #             if seq_1d.size(0) < length:
+    #                 continue
+
+    #             # slide window
+    #             windows = seq_1d.unfold(0, length, 1)       # (#windows, length)
+    #             mask_windows = msk_1d.unfold(0, length, 1)  # (#windows, length)
+
+    #             # distance to shapelet pattern
+    #             distances = torch.cdist(
+    #                 windows.unsqueeze(1),
+    #                 pattern.unsqueeze(0).unsqueeze(0),
+    #                 p=2
+    #             ).squeeze(-1).squeeze(-1)  # shape (#windows,)
+
+    #             # threshold
+    #             matches = (distances < self.distance_threshold)
+    #             valid_mask = (mask_windows.sum(dim=1) >= length * 0.5)
+    #             final_matches = matches & valid_mask
+
+    #             for w_idx in final_matches.nonzero().squeeze():
+    #                 baseline[b_idx, w_idx : w_idx + length, f_idx] = float('nan')
+
+    #     baseline[torch.isnan(baseline)] = 0.0
+    #     return baseline
 
     def _process_chunk(self, x_chunk, mask_chunk, baseline_chunk, pred_chunk):
         n_gpus = torch.cuda.device_count()
