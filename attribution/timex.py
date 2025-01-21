@@ -1,352 +1,227 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import numpy as np
+import time
+
+from txai.utils.predictors.loss import Poly1CrossEntropyLoss, GSATLoss_Extended, ConnectLoss_Extended
+from txai.utils.predictors.loss_smoother_stats import *
 
 from txai.models.encoders.transformer_simple import TransformerMVTS
-from txai.utils.functional import transform_to_attn_mask
-from txai.models.mask_generators.maskgen import MaskGenerator
-
-from txai.utils.predictors.loss import GSATLoss, ConnectLoss
-from txai.utils.predictors.loss_smoother_stats import *
-from txai.utils.functional import js_divergence, stratified_sample
-from txai.models.encoders.simple import CNN, LSTM
-
-transformer_default_args = {
-    'enc_dropout': None,
-    'nhead': 1,
-    'trans_dim_feedforward': 72,
-    'trans_dropout': 0.25,
-    'nlayers': 1,
-    'aggreg': 'mean',
-    'MAX': 10000,
-    'static': False,
-    'd_static': 0,
-    'd_pe': 16,
-    'norm_embedding': True,
-}
-
-
-all_default_opt_kwargs = {
-    'lr': 0.0001,
-    'weight_decay': 0.01,
-} 
-
-
-from dataclasses import dataclass, field
-@dataclass
-class AblationParameters:
-    equal_g_gt: bool = field(default = False)
-    hard_concept_matching: bool = field(default = True)
-    use_loss_on_concept_sims: bool = field(default = False)
-    use_concept_corr_loss: bool = field(default = False)
-    g_pret_equals_g: bool = field(default = False)
-    label_based_on_mask: bool = field(default = False)
-    use_ste: bool = field(default = True)
-    # Prototypes:
-    ptype_assimilation: bool = field(default = False)
-    side_assimilation: bool = field(default = False)
-    archtype: str = field(default = 'transformer')
-    cnn_dim: int = field(default = 128)
-
-default_abl = AblationParameters() # Class based on only default params
-
-default_loss_weights = {
-    'gsat': 1.0,
-    'connect': 1.0,
-}
-
-class TimeXModel(nn.Module):
-    '''
-    Model has full options through config
-        - Use for ablations - configuration supported through config load
-    '''
-    def __init__(self,
-            d_inp,  # Dimension of input from samples (must be constant)
-            max_len, # Max length of any sample to be fed into model
-            n_classes, # Number of classes for classification head
-            n_prototypes,
-            gsat_r, 
-            transformer_args = transformer_default_args,
-            ablation_parameters = default_abl,
-            loss_weight_dict = default_loss_weights,
-            tau = 1.0,
-            masktoken_stats = None,
-        ):
-        super(TimeXModel, self).__init__()
-
-        self.d_inp = d_inp
-        self.max_len = max_len
-        self.d_pe = transformer_default_args['d_pe']
-        self.n_classes = n_classes
-        self.transformer_args = transformer_args
-        self.n_prototypes = n_prototypes
-        self.gsat_r = gsat_r
-        self.tau = tau
-        self.masktoken_stats = masktoken_stats
-
-        self.ablation_parameters = ablation_parameters
-        self.loss_weight_dict = loss_weight_dict
+from txai.utils.data.preprocess import process_Boiler_OLD, process_Epilepsy
+from txai.utils.predictors.eval import eval_mv4
+from txai.utils.data.datasets import DatasetwInds
+from txai.utils.predictors.loss_cl import *
+from txai.utils.predictors.select_models import simloss_on_val_wboth
         
-        # Holds main encoder:
-        if self.ablation_parameters.archtype == 'transformer':
-            self.encoder_main = TransformerMVTS(
-                d_inp = d_inp,  # Dimension of input from samples (must be constant)
-                max_len = max_len, # Max length of any sample to be fed into model
-                n_classes = self.n_classes, # Number of classes for classification head
-                **self.transformer_args
-            )
-            self.d_z = (self.d_inp + self.d_pe)
-        elif self.ablation_parameters.archtype == 'cnn':
-            self.encoder_main = CNN(
-                d_inp = d_inp,
-                n_classes = self.n_classes,
-                dim = self.ablation_parameters.cnn_dim # Abuse of notation, but just for experiment purposes
-            )
-            self.d_z = self.ablation_parameters.cnn_dim
-        elif self.ablation_parameters.archtype == 'lstm':
-            self.encoder_main = LSTM(
-                d_inp = d_inp,
-                n_classes = self.n_classes,
-            )
-            self.d_z = 128
+class TimeXExplainer:
+    def __init__(
+        self,
+        model: nn.Module,
+        device: torch.device,
+        num_features: int,
+        num_classes: int,
+        data_name: str = "default",
+        split: int = 0,
+        is_timex: bool = True,
+    ):
+        """
+        :param model: Your trained PyTorch model used for inference.
+        :param device: The torch device (cpu or cuda).
+        :param num_features: Number of input features, e.g. embedding dimension.
+        :param num_classes: Number of output classes for classification.
+        :param data_name: Optional string naming the dataset, e.g. 'mimic'.
+        """
+        self.model = model.to(device)
+        self.device = device
+        self.num_features = num_features
+        self.num_classes = num_classes
+        self.data_name = data_name
+        self.is_timex = is_timex
+        self.split = split
 
-        self.encoder_pret = TransformerMVTS(
-            d_inp = d_inp,  # Dimension of input from samples (must be constant)
-            max_len = max_len, # Max length of any sample to be fed into model
-            n_classes = self.n_classes, # Number of classes for classification head
-            **self.transformer_args # TODO: change to a different parameter later - leave simple for now
+        self.timex_model = None
+
+    def train_timex(self, x_train, y_train, x_test, y_test, skip_training):
+        from torch.utils.data import DataLoader, TensorDataset
+        timesteps=(
+            torch.linspace(0, 1, x_train.shape[1], device=x_train.device)
+            .unsqueeze(0)
+            .repeat(x_train.shape[0], 1)
+        )
+        x_train = x_train.transpose(0, 1)
+        timesteps = timesteps.transpose(0, 1)
+        
+        timesteps_test = torch.linspace(0, 1, x_test.shape[1], device=x_test.device).unsqueeze(0).repeat(x_test.shape[0], 1).transpose(0,1)
+        x_test = x_test.transpose(0, 1)
+        
+        if self.is_timex:
+            from txai.models.bc_model4 import TimeXModel, AblationParameters, transformer_default_args
+            from txai.trainers.train_mv4_consistency import train_mv6_consistency
+        else:
+            from txai.models.bc_model import TimeXModel, AblationParameters, transformer_default_args
+            from txai.trainers.train_mv6_consistency import train_mv6_consistency
+        
+        tencoder_path = "./model/transformer_classifier_0_42"
+
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        clf_criterion = Poly1CrossEntropyLoss(
+            num_classes = 2,
+            epsilon = 1.0,
+            weight = None,
+            reduction = 'mean'
         )
 
-        if self.ablation_parameters.archtype == 'transformer':
-            self.encoder_t = TransformerMVTS(
-                d_inp = d_inp,  # Dimension of input from samples (must be constant)
-                max_len = max_len, # Max length of any sample to be fed into model
-                n_classes = self.n_classes, # Number of classes for classification head
-                **self.transformer_args # TODO: change to a different parameter later - leave simple for now
-            )
-        elif self.ablation_parameters.archtype == 'cnn':
-            self.encoder_t = CNN(
-                d_inp = d_inp,
-                n_classes = self.n_classes,
-                dim = self.ablation_parameters.cnn_dim
-            )
-        elif self.ablation_parameters.archtype == 'lstm':
-            self.encoder_t = LSTM(
-                d_inp = d_inp,
-                n_classes = self.n_classes,
-            )
-        elif self.ablation_parameters.archtype == 'gru':
+        sim_criterion_label = LabelConsistencyLoss()
+        sim_criterion_cons = EmbedConsistencyLoss(normalize_distance = True)
+        
+        sim_criterion = [sim_criterion_cons, sim_criterion_label]
+        selection_criterion = simloss_on_val_wboth(sim_criterion, lam = 1.0)
+        
+        targs = transformer_default_args
+        
+        all_indices = np.arange(x_train.shape[1])
+
+        np.random.seed(42)
+        np.random.shuffle(all_indices)
+
+        split_idx = int(0.9 * len(all_indices))
+        train_indices = all_indices[:split_idx]
+        val_indices   = all_indices[split_idx:]
+        
+        x_val = x_train[:, val_indices]
+        timesteps_val = timesteps[:, val_indices]
+        y_val = y_train[val_indices]
+        
+        x_train = x_train[:, train_indices]
+        timesteps = timesteps[:, train_indices]
+        y_train = y_train[train_indices]
+
+        trainB = (x_train, timesteps, y_train)
+        
+        # Output of above are chunks
+        train_dataset = DatasetwInds(*trainB)
+        
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size = 32, shuffle = True)
+
+        val = (x_val, timesteps_val, y_val)
+        test = (x_test, timesteps_test, y_test)
+
+        mu = trainB[0].mean(dim=1)
+        std = trainB[0].std(unbiased = True, dim = 1)
+
+        abl_params = AblationParameters(
+            equal_g_gt = False,
+            g_pret_equals_g = False, 
+            label_based_on_mask = True,
+            ptype_assimilation = True, 
+            side_assimilation = True,
+            use_ste = True,
+        )
+
+        loss_weight_dict = {
+            'gsat': 1.0,
+            'connect': 2.0
+        }
+
+        # targs['trans_dim_feedforward'] = 16
+        targs['trans_dropout'] = 0.1
+        targs['norm_embedding'] = False
+
+        model = TimeXModel(
+            d_inp = 31,
+            max_len = 48,
+            n_classes = self.num_classes,
+            n_prototypes = 50,
+            gsat_r = 0.5,
+            transformer_args = targs,
+            ablation_parameters = abl_params,
+            loss_weight_dict = loss_weight_dict,
+            masktoken_stats = (mu, std)
+        )
+        orig_state_dict = torch.load(tencoder_path)
+        
+        state_dict = {}
+ 
+        for k, v in orig_state_dict.items():
+            if "net." in k:
+                name = k.replace("net.", "")
+                state_dict[name] = v
+            
+        model.encoder_main.load_state_dict(state_dict)
+        model.to(device)
+
+        if self.is_timex:
+            model.init_prototypes(train = trainB)
+
+            #if not args.ge_rand_init: # Copies if not running this ablation
+            model.encoder_t.load_state_dict(state_dict)
+
+        for param in model.encoder_main.parameters():
+            param.requires_grad = False
+
+        if self.is_timex:
+            optimizer = torch.optim.AdamW(model.parameters(), lr = 1e-4, weight_decay = 0.001)
+        else:
+            optimizer = torch.optim.AdamW(model.parameters(), lr = 5e-4, weight_decay = 0.001)
+
+     
+        spath = f'./model/timex_{self.data_name}_split_{self.split}'
+        if self.is_timex == False:
+            spath += "_timexplus"
+
+        start_time = time.time()
+
+        if skip_training:
             pass
-
-        # For decoder, first value [0] is actual value, [1] is mask value (predicted logit)
-
-        self.mask_generator = MaskGenerator(d_z = (self.d_inp + self.d_pe), d_pe = self.d_pe, max_len = max_len, tau = self.tau, 
-            use_ste = self.ablation_parameters.use_ste)
-
-        # Below is a sequence-level embedding - (N_c, T, 2, d_z) -> T deals with the length of the time series
-        #   - The above is done to allow for sequence-level decoding
-        self.prototypes = nn.Parameter(torch.randn(self.n_prototypes, self.d_z)) # 2 defines mu and logvar
-
-        if self.ablation_parameters.label_based_on_mask:
-            self.z_e_predictor = nn.Sequential(
-                nn.Linear(self.d_z, self.d_z),
-                nn.ReLU(),
-                nn.Linear(self.d_z, n_classes),
+        else:
+            best_model = train_mv6_consistency(
+                model,
+                optimizer = optimizer,
+                train_loader = train_loader,
+                clf_criterion = clf_criterion,
+                sim_criterion = sim_criterion,
+                beta_exp = 2.0,
+                beta_sim = 1.0,
+                val_tuple = val, 
+                num_epochs = 50,
+                save_path = spath,
+                train_tuple = trainB,
+                early_stopping = True,
+                selection_criterion = selection_criterion,
+                label_matching = True,
+                embedding_matching = True,
+                use_scheduler = True
             )
 
-        # Setup loss functions:
-        self.gsat_loss_fn = GSATLoss(r = self.gsat_r)
-        self.connected_loss = ConnectLoss()
+        end_time = time.time()
 
-        self.set_config()
+        print('Time {}'.format(end_time - start_time))
 
-    def forward(self, src, times, captum_input = False):
-        # TODO: return early from function when in eval
+        sdict, config = torch.load(spath)
+
+        model.load_state_dict(sdict)
+        self.timex_model = model
+
+        f1, _ = eval_mv4(test, self.timex_model, masked = True)
+        print('Test F1: {:.4f}'.format(f1))
+
+    def attribute(self, x_batch: torch.Tensor, additional_forward_args=None):
+        self.timex_model.eval()
         
-        if captum_input:
-            src = src.transpose(0, 1)
-            times = times.transpose(0, 1)
-
-        if self.ablation_parameters.archtype == 'transformer':
-            pred_regular, z_main, z_seq_main = self.encoder_main(src, times, captum_input = False, get_agg_embed = True)
+        if additional_forward_args[1] is None:
+            time_batch = (
+                torch.linspace(0, 1, x_batch.shape[1], device=x_batch.device)
+                .unsqueeze(0)
+                .repeat(x_batch.shape[0], 1)
+            )
         else:
-            pred_regular, z_main = self.encoder_main(src, times, captum_input = False, get_embedding = True)
-
-        if not self.ablation_parameters.g_pret_equals_g:
-            z_seq = self.encoder_pret.embed(src, times, captum_input = False, aggregate = False)
+            time_batch = additional_forward_args[1]
+        with torch.no_grad():
+            out = self.timex_model.get_saliency_explanation(x_batch, time_batch, captum_input = True)
         
+        attr_results = out['mask_in']
+        # print(attr_results)
 
-        # Generate smooth_src: # TODO: expand to lists
-        smooth_src_list, mask_in_list, ste_mask_list, = [], [], []
-
-        if self.ablation_parameters.g_pret_equals_g:
-            mask_in, ste_mask = self.mask_generator(z_seq_main, src, times)
-        else:
-            mask_in, ste_mask = self.mask_generator(z_seq, src, times)
-
-        # Need sensor-level masking if multi-variate:
-        if self.d_inp > 1 or (self.ablation_parameters.archtype != 'transformer'):
-            exp_src, ste_mask_attn = self.multivariate_mask(src, ste_mask)
-        else:
-            # Easy, simply transform to attention mask:
-            ste_mask_attn = transform_to_attn_mask(ste_mask)
-            exp_src = src
-
-        if self.ablation_parameters.archtype == 'transformer':
-            if self.ablation_parameters.equal_g_gt:
-                pred_mask, z_mask, z_seq_mask = self.encoder_main(exp_src, times, attn_mask = ste_mask_attn, get_agg_embed = True)
-            else:
-                pred_mask, z_mask, z_seq_mask = self.encoder_t(exp_src, times, attn_mask = ste_mask_attn, get_agg_embed = True)
-        else:
-            if self.ablation_parameters.equal_g_gt:
-                pred_mask, z_mask = self.encoder_main(exp_src, times, get_embeddding = True)
-            else:
-                pred_mask, z_mask = self.encoder_t(exp_src, times, get_embedding = True)
-
-        if self.ablation_parameters.ptype_assimilation:
-            ptypes, match_m = self.hard_ptype_matching(z_mask)
-            if not self.training: # Only get indices if testing bc it's an expensive op
-                ptype_inds = torch.cat([match_m[i,:].nonzero(as_tuple=True)[0] for i in range(match_m.shape[0])])
-            else:
-                ptype_inds = []
-        else:
-            ptype_inds = None
-
-        if self.ablation_parameters.label_based_on_mask:
-            pred_mask = self.z_e_predictor(z_mask) # Make prediction on masked input
-
-        total_out_dict = {
-            'pred': pred_regular, # Prediction on regular embedding (prediction branch)
-            'pred_mask': pred_mask, # Prediction on masked embedding
-            'mask_logits': mask_in, # Mask logits, i.e. before reparameterization + ste
-            'ste_mask': ste_mask,
-            'smooth_src': src,                                  # Keep for visualizers
-            'all_z': (z_main, z_mask),
-            'reference_z':(exp_src, z_mask),
-            'z_mask_list':  z_mask,
-        }
-
-        if self.ablation_parameters.ptype_assimilation:
-            total_out_dict['ptype_inds'] = ptype_inds
-            total_out_dict['ptypes'] = ptypes
-
-        return total_out_dict
-
-    def get_saliency_explanation(self, src, times, captum_input = False):
-        '''
-        Retrieves only saliency explanation (not concepts)
-            - More efficient than calling forward due to less module calls
-        '''
-
-        if self.ablation_parameters.g_pret_equals_g:
-            z_seq = self.encoder_main.embed(src, times, captum_input = False, aggregate = False)
-        else:
-            z_seq = self.encoder_pret.embed(src, times, captum_input = False, aggregate = False)
-
-        mask_in, ste_mask = self.mask_generator(z_seq, src, times)
-
-        out_dict = {
-            'smooth_src': src,
-            'mask_in': mask_in.transpose(0,1),
-            'ste_mask': ste_mask,
-        }
-
-        return out_dict
-
-    def forward_pass_ge(self, src, times, ste_mask, captum_input = False):
-        if self.d_inp > 1:
-            exp_src, ste_mask_attn = self.multivariate_mask(src, ste_mask)
-        else:
-            # Easy, simply transform to attention mask:
-            ste_mask_attn = transform_to_attn_mask(ste_mask)
-            exp_src = src
-    
-        pred_mask, z_mask, z_seq_mask = self.encoder_t(exp_src, times, attn_mask = ste_mask_attn, get_agg_embed = True)
-
-        return pred_mask
-
-    def multivariate_mask(self, src, ste_mask):
-        # First apply mask directly on input:
-        baseline = self._get_baseline(B = src.shape[1])
-        ste_mask_rs = ste_mask.transpose(0,1)
-        if len(ste_mask_rs.shape) == 2:
-            ste_mask_rs = ste_mask_rs.unsqueeze(-1)
-        # print('ste_mask_rs', ste_mask_rs.shape) #  torch.Size([168, 41, 19])
-        # print('baseline', baseline.shape)# torch.Size([41, 41, 19])
-        # print('src', src.shape) #torch.Size([168, 41, 19])
-        src_masked = src * ste_mask_rs + (1 - ste_mask_rs) * baseline
-
-        # Then deduce attention mask by multiplication across sensors:
-        attention_ste_mask = transform_to_attn_mask(ste_mask)
-
-        return src_masked, attention_ste_mask
-
-    def hard_ptype_matching(self, z_mask):
-        # z_mask: shape (B, d_z)
-
-        if self.ablation_parameters.side_assimilation:
-            zm_n = F.normalize(z_mask.detach(), dim = -1)
-        else:
-            zm_n = F.normalize(z_mask, dim = -1)
-        pt_n = F.normalize(self.prototypes, dim = -1)
-
-        sim_mat = torch.matmul(zm_n, pt_n.transpose(0,1))
-
-        sim_prob_log = sim_mat.log_softmax(dim=-1) # Shape (B, N_p)
-
-        # Hard matching:
-        hard_match_matrix = F.gumbel_softmax(sim_prob_log, tau = 0.1, hard = True)
-
-        ptype_replacements = torch.matmul(hard_match_matrix, self.prototypes)
-
-        return ptype_replacements, hard_match_matrix
-
-    def init_prototypes(self, train, seed = None, stratify = True):
-        
-        # Initialize prototypes with random training samples:
-        X, times, y = train
-
-        if seed is not None:
-            torch.manual_seed(seed)
-            torch.cuda.manual_seed(seed)
-
-        if stratify:
-            # Create class weights for tensor:
-            inds = stratified_sample(y, n = self.n_prototypes)
-        else:
-            inds = torch.randperm(X.shape[1])[:self.n_prototypes]
-
-        Xp, times_p = X[:,inds,:], times[:,inds]
-        if self.ablation_parameters.archtype == 'transformer':
-            z_p = self.encoder_main.embed(Xp, times_p, captum_input = False)
-        else:
-            _, z_p = self.encoder_main(Xp, times_p, captum_input = False, get_embedding = True)
-
-        self.prototypes = torch.nn.Parameter(z_p.detach().clone()) # Init prototypes to class (via parameter)
-    
-    def _get_baseline(self, B):
-        mu, std = self.masktoken_stats
-        samp = torch.stack([torch.normal(mean = mu, std = std) for _ in range(B)], dim = 1)
-        return samp
-
-    def compute_loss(self, output_dict):
-        mask_loss = self.loss_weight_dict['gsat'] * self.gsat_loss_fn(output_dict['mask_logits']) + self.loss_weight_dict['connect'] * self.connected_loss(output_dict['mask_logits'])
-        return mask_loss
-
-    def save_state(self, path):
-        tosave = (self.state_dict(), self.config)
-        torch.save(tosave, path)
-
-
-    def set_config(self):
-        self.config = {
-            'd_inp': self.d_inp,
-            'max_len': self.max_len,
-            'n_classes': self.n_classes,
-            'n_prototypes': self.n_prototypes,
-            'gsat_r': self.gsat_r,
-            'transformer_args': self.transformer_args,
-            'ablation_parameters': self.ablation_parameters,
-            'tau': self.tau,
-            'masktoken_stats': self.masktoken_stats,
-        }
+        return attr_results

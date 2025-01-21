@@ -1,10 +1,12 @@
 import torch as th
-
+import os
+import sys; sys.path.append(os.path.dirname(__file__))
 from torchmetrics import Accuracy, Precision, Recall, AUROC
 from typing import Callable, Union
 
 from hmm.classifier import StateClassifier
-from set_classifier.classifier import mTANDClassifier, SeFTClassifier
+from models.set import mTANDClassifier, SeFTClassifier
+from models.transformer import TransformerClassifier
 
 from tint.models import Net
 
@@ -57,6 +59,23 @@ class MimicClassifierNet(Net):
                 n_timesteps=n_timesteps,
                 hidden_size=hidden_size
             )
+            
+        elif model_type == "transformer":
+            mimic_config = {
+                'd_inp': 31,
+                # 'd_model': 36,
+                'nhead': 1,
+                # 'nhid': 2 * 36,
+                'nlayers': 1,
+                'enc_dropout': 0.3,
+                'max_len': 48,
+                'd_static': 0,
+                'MAX': 100,
+                'aggreg': 'mean',
+                'n_classes': 2,
+                'static': False,
+            }
+            classifier = TransformerClassifier(**mimic_config)
 
         super().__init__(
             layers=classifier,

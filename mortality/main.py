@@ -66,6 +66,7 @@ def main(
     output_file: str = "results.csv",
     model_type: str = "state",
     testbs: int = 0,
+    top: int = 50,
     skip_train_motif: bool = True,
     skip_train_timex: bool = True,
 ):
@@ -120,6 +121,7 @@ def main(
     with lock:
         x_train = mimic3.preprocess(split="train")["x"].to(device)
         x_test = mimic3.preprocess(split="test")["x"].to(device)
+        y_train = mimic3.preprocess(split="train")["y"].to(device)
         y_test = mimic3.preprocess(split="test")["y"].to(device)
         mask_train = mimic3.preprocess(split="train")["mask"].to(device)
         mask_test = mimic3.preprocess(split="test")["mask"].to(device)
@@ -230,13 +232,14 @@ def main(
             lambda_2=lambda_2,
             loss="cross_entropy",
             optim="adam",
-            lr=0.01,
+            lr = 0.01,
+            # lr=0.01,
         )
         explainer = GateMask(classifier)
         _attr = explainer.attribute(
             x_test,
             # additional_forward_args=(True,) (return_all = True) is it really considered?
-            additional_forward_args=(data_mask, timesteps, True),
+            additional_forward_args=(data_mask, timesteps, False),
             trainer=trainer,
             mask_net=mask,
             batch_size=x_test.shape[0],
@@ -407,6 +410,42 @@ def main(
             integrated_gradients.append(attr_batch.cpu())
         
         attr["integrated_gradients_point"] = th.cat(integrated_gradients, dim=0)
+    
+    if "integrated_gradients_point_abs" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                for f in range(x_batch.shape[2]):
+                    baselines = x_batch.clone()
+                    baselines[:, t, f] = 0
+                    attr_batch[:, t, f] = explainer.attribute(
+                        x_batch,
+                        baselines=baselines,
+                        target=partial_targets,
+                        additional_forward_args=(data_mask, timesteps, False),
+                    )[:, t, f].abs()
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_point_abs"] = th.cat(integrated_gradients, dim=0)
         
     if "integrated_gradients_online" in explainers:
         explainer = IntegratedGradients(classifier)
@@ -437,7 +476,7 @@ def main(
                     baselines=baselines,
                     target=partial_targets,
                     additional_forward_args=(data_mask, timesteps, False),
-                )[:, t, :]
+                )[:, t, :].abs()
             
             integrated_gradients.append(attr_batch.cpu())
         
@@ -472,7 +511,7 @@ def main(
                     baselines=baselines,
                     target=partial_targets,
                     additional_forward_args=(data_mask, timesteps, False),
-                )[:, :, f]
+                )[:, :, f].abs()
             
             integrated_gradients.append(attr_batch.cpu())
         
@@ -703,7 +742,7 @@ def main(
         attr_second = th.cat(integrated_gradients, dim=0)
         
         attr_second[attr_first <= q50] = attr_first[attr_first <= q50]
-        attr["two_stage"] = attr_second
+        attr["two_stage"] = attr_second.abs()
         
     if "integrated_two_stage_both" in explainers:
         explainer = IntegratedGradients(classifier)
@@ -843,7 +882,78 @@ def main(
         attr_second[attr_first <= q50] = attr_first_fix[attr_first <= q50]
         
         attr_total = attr_second + attr_first
-        attr["two_stage_both"] = attr_total
+        attr["two_stage_both"] = attr_total.abs() 
+        
+    if "integrated_i_j" in explainers:
+        explainer = IntegratedGradients(classifier)
+        
+        integrated_gradients = []
+        integrated_gradients_i = []
+        integrated_gradients_j = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+            
+            baselines_i = x_batch.clone()
+            baselines_j = x_batch.clone()
+            
+            baselines_i[:, ::2, :] = 0
+            baselines_j[:, 1::2, :] = 0
+
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=x_batch * 0,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+            
+            attr_batch_i = explainer.attribute(
+                x_batch,
+                baselines=baselines_i,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+            
+            attr_batch_j = explainer.attribute(
+                x_batch,
+                baselines=baselines_j,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                # temporal_additional_forward_args=temporal_additional_forward_args,
+                # task="binary",
+                # show_progress=True,
+            )
+        
+            integrated_gradients.append(attr_batch.cpu())
+            integrated_gradients_i.append(attr_batch_i.cpu())
+            integrated_gradients_j.append(attr_batch_j.cpu())
+        
+        attr_orig = th.cat(integrated_gradients, dim=0)
+        attr_i = th.cat(integrated_gradients_i, dim=0)
+        attr_j = th.cat(integrated_gradients_j, dim=0)
+        
+        
+        attr_total = attr_orig.abs() + attr_i.abs() + attr_j.abs()
+        
+        attr["integrated_i_j"] = attr_total 
         
     if "integrated_random_mask" in explainers:
         explainer = IntegratedGradients(classifier)
@@ -1033,7 +1143,7 @@ def main(
                     baselines=baselines,
                     target=partial_targets,
                     additional_forward_args=(data_mask, timesteps, False),
-                )[:, t, :]
+                )[:, t, :].abs()
             
             for f in range(x_batch.shape[2]):
                 baselines = x_batch.clone()
@@ -1043,7 +1153,7 @@ def main(
                     baselines=baselines,
                     target=partial_targets,
                     additional_forward_args=(data_mask, timesteps, False),
-                )[:, :, f]
+                )[:, :, f].abs()
             
             integrated_gradients.append(attr_batch.cpu())
         
@@ -1102,7 +1212,7 @@ def main(
                 # show_progress=True,
             )
             
-            attr_batch = th.max(th.stack([attr_all, attr_f, attr_t]), dim=0).values
+            attr_batch = th.max(th.stack([attr_all.abs(), attr_f.abs(), attr_t.abs()]), dim=0).values
             
             integrated_gradients.append(attr_batch.cpu())
         
@@ -1387,6 +1497,106 @@ def main(
             integrated_gradients.append(x_batch.grad.detach().cpu())
             
         attr["gradient"] = th.cat(integrated_gradients, dim=0)
+        
+    if "timex" in explainers:
+        from attribution.timex import TimeXExplainer
+        explainer = TimeXExplainer(
+            model=classifier,
+            device=x_test.device,
+            num_features=31,
+            num_classes=2,
+            data_name='mimic',
+            split=fold,
+            is_timex=True,
+        )
+        
+        explainer.train_timex(x_train, y_train, x_test, y_test, skip_train_timex)
+            
+        timex_results = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            attr_batch = explainer.attribute(
+                x_batch,
+                additional_forward_args=(data_mask, timesteps, False),
+            )
+            
+            timex_results.append(attr_batch.detach().cpu())
+        
+        
+        attr["timex"] = th.cat(timex_results, dim=0)
+        
+    if "timex++" in explainers:
+        from attribution.timex import TimeXExplainer
+        explainer = TimeXExplainer(
+            model=classifier,
+            device=x_test.device,
+            num_features=31,
+            num_classes=2,
+            data_name='mimic',
+            split=fold,
+            is_timex=False,
+        )
+        
+        explainer.train_timex(x_train, y_train, x_test, y_test, skip_train_timex)
+            
+        timex_results = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            attr_batch = explainer.attribute(
+                x_batch,
+                additional_forward_args=(data_mask, timesteps, False),
+            )
+            
+            timex_results.append(attr_batch.detach().cpu())
+        
+        
+        attr["timex++"] = th.cat(timex_results, dim=0)
+    
+    if "our" in explainers:
+        from attribution.explainers import OUR
+        
+        explainer = OUR(classifier)
+        
+        our_results = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+            
+            # attr_batch = explainer.attribute(
+            attr_batch = explainer.attribute_random_time_segments_one_dim_same_for_batch(
+                x_batch, 
+                baselines=x_batch * 0,
+                targets=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                n_samples=50,
+                num_segments=30,
+            ).abs()
+            
+            our_results.append(attr_batch.detach().cpu())
+            
+        attr["our"] = th.cat(our_results, dim=0)
 
     # # Classifier and x_test to cpu
     ## classifier.to("cpu")
@@ -1419,7 +1629,7 @@ def main(
                             attributions=v.cpu(),
                             baselines=baselines,
                             topk=0.0,
-                            top=50,
+                            top=args.top,
                             testbs=testbs,
                             additional_forward_args=(mask_test, timesteps, False),
                         )
@@ -1632,12 +1842,17 @@ def parse_args():
         "--model_type",
         type=str,
         default="state",
-        choices=["state", "mtand", "seft"],
+        choices=["state", "mtand", "seft", "transformer"],
     )
     parser.add_argument(
         "--testbs",
         type=int,
         default=200
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=50
     )
     parser.add_argument(
         "--skip_train_motif",
@@ -1679,6 +1894,7 @@ if __name__ == "__main__":
         output_file=args.output_file,
         model_type=args.model_type,
         testbs=args.testbs,
+        top=args.top,
         skip_train_motif=args.skip_train_motif,
         skip_train_timex=args.skip_train_timex
     )
