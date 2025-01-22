@@ -118,7 +118,7 @@ class OUR:
 
         # Start from "start_pos" so that alpha=0 means "baselines" 
         # and alpha=1 means "inputs" (plus small noise).
-        start_pos = baselines - (inputs - baselines)  # same shape as inputs
+        start_pos = baselines
 
         # Expand to shape [n_samples, B, T, D]
         expanded_inputs = inputs.unsqueeze(0)      # [1, B, T, D]
@@ -147,7 +147,7 @@ class OUR:
         # there's no gradient flowing for those positions.
 
         # Example: 50% chance to fix each [t, d]
-        fix_probability = 0.3  # tweak as needed
+        fix_probability = 0.5  # tweak as needed
         rand_mask = torch.rand_like(noisy_inputs)  # shape [n_samples, B, T, D]
         # Convert to {0,1} by comparing to fix_probability
         # 1 = keep interpolation, 0 = fix to actual input
@@ -245,7 +245,7 @@ class OUR:
         alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
 
         # Interpolation from start_pos to inputs + noise
-        start_pos = baselines - (inputs - baselines)
+        start_pos = baselines
         expanded_inputs = inputs.unsqueeze(0)     # [1, B, T, D]
         expanded_start  = start_pos.unsqueeze(0)  # [1, B, T, D]
         noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
@@ -344,7 +344,7 @@ class OUR:
         alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
         # Start from "start_pos" so alpha=0 means baselines,
         # alpha=1 means inputs (plus small noise).
-        start_pos = baselines - (inputs - baselines)
+        start_pos = baselines
         expanded_inputs = inputs.unsqueeze(0)    # [1, B, T, D]
         expanded_start = start_pos.unsqueeze(0)  # [1, B, T, D]
         noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
@@ -473,7 +473,7 @@ class OUR:
         # 1) Build interpolation from baseline -> inputs
         # -------------------------------------------------------
         alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
-        start_pos = baselines - (inputs - baselines)
+        start_pos = baselines
         expanded_inputs = inputs.unsqueeze(0)     # [1, B, T, D]
         expanded_start  = start_pos.unsqueeze(0)  # [1, B, T, D]
 
@@ -594,7 +594,7 @@ class OUR:
         # 1) Build interpolation from baseline -> inputs
         # -------------------------------------------------------
         alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
-        start_pos = baselines - (inputs - baselines)
+        start_pos = baselines
         expanded_inputs = inputs.unsqueeze(0)    # shape [1, B, T, D]
         expanded_start  = start_pos.unsqueeze(0) # shape [1, B, T, D]
 
@@ -696,7 +696,7 @@ class OUR:
 
     #     # Add noise to interpolate between baseline and input
     #     alphas = torch.linspace(0, 1, n_samples).view(-1, 1, 1, 1).to(inputs.device)
-    #     start_pos = baselines - (inputs - baselines)
+    #     start_pos = baselines
     #     # noisy_inputs = baselines.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - baselines.unsqueeze(0))
     #     noisy_inputs = start_pos.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - start_pos.unsqueeze(0))
 

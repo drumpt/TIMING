@@ -17,7 +17,7 @@ from attribution.gate_mask import GateMask
 from attribution.gatemasknn import *
 from attribution.motif import ShapeletExplainer
 from argparse import ArgumentParser
-from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime
+from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime, KernelShap, DeepLiftShap
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import TensorBoardLogger
 from typing import List
@@ -29,6 +29,8 @@ from tint.attr import (
     Retain,
     TemporalAugmentedOcclusion,
     TemporalOcclusion,
+    Occlusion,
+    FeatureAblation,
     TimeForwardTunnel,
 )
 from tint.attr.models import (
@@ -170,6 +172,17 @@ def main(
             task="binary",
             show_progress=True,
         ).abs()
+        
+    # if "deep_lift_shap" in explainers:
+    #     explainer = DeepLiftShap(classifier)
+    #     attr["deep_lift"] = explainer.attribute(
+    #         x_test,
+    #         baselines=x_test * 0,
+    #         additional_forward_args=(data_mask, timesteps, False),
+    #         # temporal_additional_forward_args=temporal_additional_forward_args,
+    #         target=1,
+    #         # task="binary",
+    #     ).abs()
     
     if "dyna_mask" in explainers:
         trainer = Trainer(
@@ -1253,7 +1266,7 @@ def main(
         attr["integrated_gradients_base"] = th.cat(integrated_gradients, dim=0)
         
     if "integrated_gradients_base_abs" in explainers:
-        explainer = IntegratedGradients(classifier)
+        explainer = IntegratedGradients(classifier.predict)
         
         integrated_gradients = []
 
@@ -1372,12 +1385,23 @@ def main(
         attr["integrated_gradients_base_zero_cf"] = th.cat(integrated_gradients, dim=0)
 
     if "lime" in explainers:
-        explainer = TimeForwardTunnel(Lime(classifier))
+        explainer = Lime(classifier)
         attr["lime"] = explainer.attribute(
             x_test,
             additional_forward_args=(data_mask, timesteps, False),
-            temporal_additional_forward_args=temporal_additional_forward_args,
-            task="binary",
+            # temporal_additional_forward_args=temporal_additional_forward_args,
+            # task="binary",
+            target=1,
+            #show_progress=True,
+        ).abs()
+        
+    if "kernelshap" in explainers:
+        explainer = KernelShap(classifier)
+        attr["kernelshap"] = explainer.attribute(
+            x_test,
+            baselines=0,
+            target=1,
+            additional_forward_args=(data_mask, timesteps, False),
             show_progress=True,
         ).abs()
 
@@ -1407,6 +1431,31 @@ def main(
             temporal_additional_forward_args=temporal_additional_forward_args,
             attributions_fn=abs,
             task="binary",
+            show_progress=True,
+        ).abs()
+        
+    if "fo_orig" in explainers:
+        explainer = Occlusion(classifier)
+        attr["fo_orig"] = explainer.attribute(
+            x_test,
+            target=1,
+            sliding_window_shapes=(1,1),
+            baselines=(x_test*0),
+            additional_forward_args=(data_mask, timesteps, False),
+            #temporal_additional_forward_args=temporal_additional_forward_args,
+            #attributions_fn=abs,
+            #task="binary",
+            show_progress=True,
+        ).abs()
+        
+    if "fa" in explainers:
+        explainer = FeatureAblation(classifier.predict)
+        attr["fa_target_1"] = explainer.attribute(
+            x_test,
+            baselines=0,
+            target=1,
+            additional_forward_args=(data_mask, timesteps, False),
+            #temporal_additional_forward_args=temporal_additional_forward_args,
             show_progress=True,
         ).abs()
 
@@ -1565,7 +1614,7 @@ def main(
     if "our" in explainers:
         from attribution.explainers import OUR
         
-        explainer = OUR(classifier)
+        explainer = OUR(classifier.predict)
         
         our_results = []
         
@@ -1590,13 +1639,13 @@ def main(
                 baselines=x_batch * 0,
                 targets=partial_targets,
                 additional_forward_args=(data_mask, timesteps, False),
-                n_samples=50,
+                n_samples=1000,
                 num_segments=30,
             ).abs()
             
             our_results.append(attr_batch.detach().cpu())
             
-        attr["our"] = th.cat(our_results, dim=0)
+        attr["timeig_1000"] = th.cat(our_results, dim=0)
 
     # # Classifier and x_test to cpu
     ## classifier.to("cpu")

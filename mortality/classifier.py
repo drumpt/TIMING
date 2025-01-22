@@ -112,3 +112,6 @@ class MimicClassifierNet(Net):
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
         x, y, mask = batch
         return self(x.float(), mask=mask)
+    
+    def predict(self, *args, **kwargs) -> th.Tensor:
+        return self.net(*args, **kwargs).softmax(-1)
