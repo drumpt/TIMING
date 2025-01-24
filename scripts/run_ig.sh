@@ -30,13 +30,15 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 5 6 7)
+GPUS=(3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=4
-num_max_jobs=7
+i=0
+num_max_jobs=5
 
 for cv in 0
 do
+    for top in 1488
+    do
     # explainer_list="integrated_gradients integrated_gradients_point integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature integrated_gradients_base integrated_gradients_base_zero_cf gradient"
     # explainer_list="integrated_gradients_base integrated_gradients_base_zero_cf"
     # explainer_list="integrated_gradients_base_zero_cf"
@@ -47,20 +49,22 @@ do
     # explainer_list="deeplift_two_stage_both deeplift_two_stage deeplift_three_stage deeplift deeplift_point deeplift_online deeplift_feature deeplift_online_feature deeplift_base deeplift_base_abs deeplift_base_zero_cf"
 
     # explainer_list="integrated_two_stage_both"
-    explainer_list="integrated_gradients integrated_gradients_fixed integrated_gradients_point integrated_gradients_online integrated_gradients_feature integrated_gradients_feature_modify integrated_gradients_smooth diff integrated_two_stage integrated_two_stage_both integrated_random_mask integrated_three_stage integrated_gradients_online_feature integrated_gradients_max integrated_gradients_base integrated_gradients_base_abs integrated_gradients_base_cf integrated_gradients_base_zero_cf"
-
-    for explainer in ${explainer_list}; do
-        CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
-            --model_type state \
-            --explainers $explainer \
-            --fold $cv \
-            --testbs 30 \
-            --areas 0.1 \
-            --output-file state_cum_${cv}_results.csv \
-            --device cuda:0 \
-            2>&1 &
-        wait_n
-        i=$((i + 1))
+        # explainer_list="integrated_gradients_online integrated_gradients_feature"
+        explainer_list="gradientshap_abs gradientshap_online gradientshap_feature"
+        for explainer in ${explainer_list}; do
+            CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
+                --model_type state \
+                --explainers $explainer \
+                --fold $cv \
+                --testbs 30 \
+                --areas 0.1 \
+                --top $top \
+                --output-file state_cum_${cv}_${top}_results.csv \
+                --device cuda:0 \
+                2>&1 &
+            wait_n
+            i=$((i + 1))
+        done
     done
 done
 

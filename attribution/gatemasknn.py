@@ -297,6 +297,7 @@ class GateMaskNet(Net):
             if additional_forward_args is not None
             else None,
         )
+        
 
         # Add L1 loss
         mask_ = self.net.mask[

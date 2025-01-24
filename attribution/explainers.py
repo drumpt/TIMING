@@ -15,6 +15,7 @@ from captum.attr import (
     Occlusion,
     ShapleyValueSampling,
 )
+from torch.distributions import Beta
 
 import torch
 import random
@@ -199,7 +200,7 @@ class OUR:
         )[0]  # shape: [n_samples, B, T, D]
 
         # Average gradients over n_samples
-        grads = grad.mean(dim=0)  # [B, T, D]
+        grads = grad.sum(dim=0)  # [B, T, D]
 
         # -------------------------------------------------
         # 5) Build final attributions
@@ -215,11 +216,11 @@ class OUR:
 
         # If you want each example's final attributions to 
         # reflect the fraction of times it was “interpolated”:
-        mask_avg = time_mask.mean(dim=0)  # shape [B, T, D]
+        mask_avg = time_mask.sum(dim=0)  # shape [B, T, D]
         raw_attr = grads * (inputs - baselines)
         # Zero out contributions in proportion to how often 
         # they were "fixed".
-        final_attributions = mask_avg * raw_attr
+        final_attributions = raw_attr / mask_avg
 
         # You can also choose to skip mask_avg if you prefer 
         # to keep the raw average gradient, which might 
@@ -303,17 +304,27 @@ class OUR:
         )[0]  # [n_samples, B, T, D]
 
         # Average gradient over n_samples
-        grads = grad.mean(dim=0)  # [B, T, D]
+        grads = grad.sum(dim=0)  # [B, T, D]
 
-        # Multiply by (inputs - baselines)
+        # -------------------------------------------------
+        # 5) Build final attributions
+        # -------------------------------------------------
+        # For positions we left "interpolating," 
+        # attributions = grads * (inputs - baselines).
+        # For positions that were forced to real input, 
+        # we want zero attributions. 
+        # One simple approach is to also average the mask 
+        # across the n_samples. 
+        # Alternatively, if you want *every sample* to fix 
+        # that position, you can incorporate a different rule.
+
+        # If you want each example's final attributions to 
+        # reflect the fraction of times it was “interpolated”:
+        mask_avg = time_mask.sum(dim=0)  # shape [B, T, D]
         raw_attr = grads * (inputs - baselines)
-
-        # Optionally zero out the final attribution in places
-        # that were fixed for each sample. But we used a *different* 
-        # fixed segment per sample. So let's average the time_mask.
-        # If time_mask[i, b, t, d] == 1 => that position was "interpolated"
-        mask_avg = time_mask.mean(dim=0)  # [B, T, D]
-        final_attributions = mask_avg * raw_attr
+        # Zero out contributions in proportion to how often 
+        # they were "fixed".
+        final_attributions = raw_attr / mask_avg
 
         return final_attributions
     
@@ -417,25 +428,27 @@ class OUR:
         )[0]  # shape [n_samples, B, T, D]
 
         # Average gradient over n_samples
-        grads = grad.mean(dim=0)  # [B, T, D]
+        grads = grad.sum(dim=0)  # [B, T, D]
 
         # -------------------------------------------------
-        # 5) Compute final attributions
+        # 5) Build final attributions
         # -------------------------------------------------
-        # Standard gradient* (input - baseline)
+        # For positions we left "interpolating," 
+        # attributions = grads * (inputs - baselines).
+        # For positions that were forced to real input, 
+        # we want zero attributions. 
+        # One simple approach is to also average the mask 
+        # across the n_samples. 
+        # Alternatively, if you want *every sample* to fix 
+        # that position, you can incorporate a different rule.
+
+        # If you want each example's final attributions to 
+        # reflect the fraction of times it was “interpolated”:
+        mask_avg = time_mask.sum(dim=0)  # shape [B, T, D]
         raw_attr = grads * (inputs - baselines)
-
-        # Because each sample might fix a different random segment,
-        # you may want to average out how often each time-step was "free"
-        # vs. "fixed." We can do that by averaging time_mask across samples.
-        # If time_mask[i,b,t,d]==1 => that position was interpolated (thus attributed).
-        mask_avg = time_mask.mean(dim=0)  # shape [B, T, D]
-
-        # Option 1: Multiply raw_attr by how often that position was "not fixed"
-        final_attributions = mask_avg * raw_attr
-
-        # Option 2: If you want the raw attributions ignoring how often
-        # a position was masked, just return raw_attr.
+        # Zero out contributions in proportion to how often 
+        # they were "fixed".
+        final_attributions = raw_attr / mask_avg
 
         return final_attributions
 
@@ -545,20 +558,27 @@ class OUR:
             allow_unused=True
         )[0]  # shape => [n_samples, B, T, D]
 
-        # Average over n_samples
-        grads = grad.mean(dim=0)  # shape => [B, T, D]
+        grads = grad.sum(dim=0)  # [B, T, D]
 
-        # -------------------------------------------------------
-        # 5) Compute final attributions
-        # -------------------------------------------------------
-        # Standard: gradient * (inputs - baselines)
+        # -------------------------------------------------
+        # 5) Build final attributions
+        # -------------------------------------------------
+        # For positions we left "interpolating," 
+        # attributions = grads * (inputs - baselines).
+        # For positions that were forced to real input, 
+        # we want zero attributions. 
+        # One simple approach is to also average the mask 
+        # across the n_samples. 
+        # Alternatively, if you want *every sample* to fix 
+        # that position, you can incorporate a different rule.
+
+        # If you want each example's final attributions to 
+        # reflect the fraction of times it was “interpolated”:
+        mask_avg = time_mask.sum(dim=0)  # shape [B, T, D]
         raw_attr = grads * (inputs - baselines)
-
-        # Because each sample used different slices/dimensions,
-        # some positions were masked more often than others.
-        # Optionally scale by how often each (t, d) was "not fixed":
-        mask_avg = time_mask.mean(dim=0)  # shape => [B, T, D]
-        final_attr = mask_avg * raw_attr
+        # Zero out contributions in proportion to how often 
+        # they were "fixed".
+        final_attributions = raw_attr / mask_avg
 
         return final_attr
 
@@ -570,7 +590,8 @@ class OUR:
         additional_forward_args,
         n_samples: int = 50,
         num_segments: int = 3,     # how many time segments (one dimension each) to fix per sample
-        max_seg_len: int = None    # optional maximum length for each time segment
+        max_seg_len: int = None,    # optional maximum length for each time segment
+        min_seg_len: int = None
     ):
         """
         Generates random contiguous time segments (each segment picks ONE random dimension).
@@ -602,6 +623,33 @@ class OUR:
         noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
         noise = torch.randn_like(noisy_inputs) * 1e-4
         noisy_inputs = noisy_inputs + noise
+        
+        # # 1. Create a Beta distribution
+        # beta_dist = Beta(0.5, 0.5)
+
+        # # 2. Sample n_samples alphas from Beta distribution and move to device
+        # #    alpha_i ~ Beta(alpha_param, beta_param)
+        # alphas = beta_dist.sample((n_samples,)).to(device)
+
+        # # 3. Sort the alphas in ascending order (optional but often desirable)
+        # alphas = torch.sort(alphas).values
+
+        # # 4. Reshape alphas to be broadcastable: [n_samples, 1, 1, 1]
+        # #    so they can multiply [1, B, T, D] properly
+        # alphas = alphas.view(-1, 1, 1, 1)
+
+        # 5. Expand your inputs and baselines to [1, B, T, D]
+        start_pos = baselines
+        expanded_inputs = inputs.unsqueeze(0)     # [1, B, T, D]
+        expanded_start  = start_pos.unsqueeze(0)  # [1, B, T, D]
+
+        # 6. Interpolate between start_pos and inputs using alpha
+        #    result shape: [n_samples, B, T, D]
+        noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
+
+        # 7. Optionally add a small random noise for numerical stability (or for exploration)
+        noise = torch.randn_like(noisy_inputs) * 1e-4
+        noisy_inputs = noisy_inputs + noise
 
         # -------------------------------------------------------
         # 2) Create a random mask for each sample i,
@@ -612,25 +660,37 @@ class OUR:
 
         if max_seg_len is None:
             max_seg_len = T
+        
+        if min_seg_len is None:
+            min_seg_len = 1
 
         # For each sample i, we pick num_segments random (time-range, dimension).
         # We do NOT loop over b in [0..B-1]. Instead, we just set the same mask for all b.
         for i in range(n_samples):
+        # for i in range(1, n_samples-1):
             for seg_id in range(num_segments):
                 dim_chosen = random.randint(0, D - 1)
-                seg_len = random.randint(1, max_seg_len)
+            # for dim_chosen in range(31):
+                seg_len = random.randint(min_seg_len, max_seg_len)
                 t_start = random.randint(0, T - seg_len)
                 t_end   = t_start + seg_len
 
                 # Fix that slice for *all batch items* => set to 0
                 time_mask[i, :, t_start:t_end, dim_chosen] = 0
+                
+                # if t_start > 0:
+                #     time_mask[i, :, t_start - 1, dim_chosen] = 0.5
+                # if t_end < T :
+                #     time_mask[i, :, t_end, dim_chosen] = 0.5
+                
+        # time_mask = 1 - time_mask
 
         # Combine masked inputs
-        noisy_inputs.requires_grad = True
+        # noisy_inputs.requires_grad = True
         fixed_inputs = inputs.unsqueeze(0).detach()  # shape [1, B, T, D]
         masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
-        # masked_inputs.requires_grad = True
-
+        masked_inputs.requires_grad = True
+        # masked_inputs.zero_()
         # -------------------------------------------------------
         # 3) Forward pass & gather target logits
         # -------------------------------------------------------
@@ -650,12 +710,6 @@ class OUR:
             dim=2,
             index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
         ).squeeze(-1)
-        
-        # Gather only the target logit for each example
-        gathered = predictions.gather(
-            dim=2,
-            index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
-        ).squeeze(-1)  # [n_samples, B]
 
         total_for_target = gathered.sum()
 
@@ -664,14 +718,15 @@ class OUR:
         # -------------------------------------------------------
         grad = torch.autograd.grad(
             outputs=total_for_target,
-            # inputs=masked_inputs,
-            inputs=noisy_inputs,
+            inputs=masked_inputs,
+            # inputs=noisy_inputs,
             retain_graph=True,
             allow_unused=True
         )[0]  # shape => [n_samples, B, T, D]
 
         # Average over n_samples dimension
-        grads = grad.mean(dim=0)  # shape => [B, T, D]
+        grad[time_mask == 0] = 0
+        grads = grad.sum(dim=0)  # shape => [B, T, D]
 
         # -------------------------------------------------------
         # 5) Compute final attributions
@@ -681,70 +736,179 @@ class OUR:
 
         # If you want to reduce attributions where positions
         # got masked out frequently, multiply by mask_avg:
-        mask_avg = time_mask.mean(dim=0)  # shape => [B, T, D]
-        final_attr = mask_avg * raw_attr
+        mask_avg = time_mask.sum(dim=0)  # shape => [B, T, D]
+        
+        final_attr = raw_attr / mask_avg
 
         return final_attr
 
-    # def attribute(self, inputs, baselines, targets, additional_forward_args, n_samples=50):
-    #     if inputs.shape != baselines.shape:
-    #         raise ValueError("Inputs and baselines must have the same shape.")
-    #     # mask = additional_forward_args[0]
-    #     # if mask is None:
-    #     #     mask = torch.ones_like(inputs)
+
+    def attribute_adaptive_time_segments(
+        self,
+        inputs: torch.Tensor,      # [B, T, D]
+        baselines: torch.Tensor,   # [B, T, D]
+        targets: torch.Tensor,     # [B]
+        additional_forward_args,
+        n_samples: int = 50,
+        num_segments: int = 3,
+        max_seg_len: int = None
+    ):
+        """
+        Adaptive TimeIG:
+        Generates adaptive time segments based on gradient norms for each sample.
+
+        Steps:
+        1) Interpolate from baselines -> inputs using n_samples alpha steps.
+        2) For each sample, compute gradient norms and select top-k segments.
+        3) Mask input segments and compute attributions.
+
+        Parameters:
+            - num_segments: Number of segments to adaptively select.
+            - max_seg_len: Maximum segment length.
+        """
+        if inputs.shape != baselines.shape:
+            raise ValueError("Inputs and baselines must have the same shape.")
+
+        B, T, D = inputs.shape
+        device = inputs.device
+        
+        if max_seg_len is None:
+            max_seg_len = T
+
+        # 1) Interpolation
+        alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
+        start_pos = baselines
+        expanded_inputs = inputs.unsqueeze(0)    # [1, B, T, D]
+        expanded_start = start_pos.unsqueeze(0)  # [1, B, T, D]
+
+        interpolated_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
+        interpolated_inputs.requires_grad = True
+
+        # 2) Gradient Norm Calculation
+        # Forward pass and gather target logits
+        predictions = self.model(interpolated_inputs.view(-1, T, D), 
+                                 mask=None,
+                                 timesteps=None,
+                                 return_all=additional_forward_args[2])
+        predictions = predictions.view(n_samples, B, -1)  # [n_samples, B, num_classes]
+
+        gathered = predictions.gather(dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)).squeeze(-1)
+        total_for_target = gathered.sum()
+
+        # Backpropagate to compute gradients
+        grad = torch.autograd.grad(
+            outputs=total_for_target,
+            inputs=interpolated_inputs,
+            retain_graph=True,
+            allow_unused=True
+        )[0]  # [n_samples, B, T, D]
+
+        grad_norms = grad.mean(dim=0).norm(dim=-1)  # [B, T]
+
+        # 3) Adaptive Segment Selection
+        masks = torch.ones_like(interpolated_inputs)  # [n_samples, B, T, D]
+        for b in range(B):
+            top_indices = torch.topk(grad_norms[b], num_segments).indices
+            for idx in top_indices:
+                t_start = max(0, idx - max_seg_len // 2)
+                t_end = min(T, idx + max_seg_len // 2)
+                masks[:, b, t_start:t_end, :] = 0
+
+        # Masked Inputs
+        masked_inputs = masks * interpolated_inputs + (1 - masks) * inputs.unsqueeze(0)
+
+        # Compute gradients and attributions
+        masked_predictions = self.model(masked_inputs.view(-1, T, D),
+                                        mask=None,
+                                        timesteps=None,
+                                        return_all=additional_forward_args[2])
+        masked_predictions = masked_predictions.view(n_samples, B, -1)
+        masked_gathered = masked_predictions.gather(dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)).squeeze(-1)
+        masked_total = masked_gathered.sum()
+
+        masked_grad = torch.autograd.grad(
+            outputs=masked_total,
+            inputs=interpolated_inputs,
+            retain_graph=True,
+            allow_unused=True
+        )[0]
+
+        # Attribution
+        final_attr = masked_grad.mean(dim=0) * (inputs - baselines)
+
+        return final_attr
+    
+    def naive_attribute(self, inputs, baselines, targets, additional_forward_args, n_samples=50):
+        if inputs.shape != baselines.shape:
+            raise ValueError("Inputs and baselines must have the same shape.")
+        # mask = additional_forward_args[0]
+        # if mask is None:
+        #     mask = torch.ones_like(inputs)
             
+        # 1. Create a Beta distribution
+        # beta_dist = Beta(0.5, 0.5)
 
-    #     # Add noise to interpolate between baseline and input
-    #     alphas = torch.linspace(0, 1, n_samples).view(-1, 1, 1, 1).to(inputs.device)
-    #     start_pos = baselines
-    #     # noisy_inputs = baselines.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - baselines.unsqueeze(0))
-    #     noisy_inputs = start_pos.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - start_pos.unsqueeze(0))
+        # # 2. Sample n_samples alphas from Beta distribution and move to device
+        # #    alpha_i ~ Beta(alpha_param, beta_param)
+        # alphas = beta_dist.sample((n_samples,)).to(inputs.device)
 
-    #     # Add noise
-    #     noise = torch.randn_like(noisy_inputs) * 0.0001
-    #     noisy_inputs = noisy_inputs + noise
+        # # 3. Sort the alphas in ascending order (optional but often desirable)
+        # alphas = torch.sort(alphas).values
 
-    #     # Compute gradients for each noisy input
-    #     noisy_inputs.requires_grad = True
+        # # 4. Reshape alphas to be broadcastable: [n_samples, 1, 1, 1]
+        # #    so they can multiply [1, B, T, D] properly
+        # alphas = alphas.view(-1, 1, 1, 1)
+        # Add noise to interpolate between baseline and input
+        alphas = torch.linspace(0, 1, n_samples).view(-1, 1, 1, 1).to(inputs.device)
+        start_pos = baselines
+        # noisy_inputs = baselines.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - baselines.unsqueeze(0))
+        noisy_inputs = start_pos.unsqueeze(0) + alphas * (inputs.unsqueeze(0) - start_pos.unsqueeze(0))
+
+        # Add noise
+        noise = torch.randn_like(noisy_inputs) * 0.0001
+        noisy_inputs = noisy_inputs + noise
+
+        # Compute gradients for each noisy input
+        noisy_inputs.requires_grad = True
         
-    #     # ### only last time point prediction
-    #     # mask = mask.unsqueeze(0).repeat(n_samples, 1, 1, 1)
-    #     # mask = mask.view(-1, inputs.shape[1], inputs.shape[2])
+        # ### only last time point prediction
+        # mask = mask.unsqueeze(0).repeat(n_samples, 1, 1, 1)
+        # mask = mask.view(-1, inputs.shape[1], inputs.shape[2])
         
-    #     predictions = self.model(
-    #         noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
-    #         mask=None,
-    #         timesteps=None,
-    #         return_all=additional_forward_args[2]
-    #     )
-    #     print(predictions.shape)
+        predictions = self.model(
+            noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
+            mask=None,
+            timesteps=None,
+            return_all=additional_forward_args[2]
+        )
+        # print(predictions.shape)
 
-    #     if len(predictions.shape) == 1:
-    #         predictions = predictions.unsqueeze(1)
+        if len(predictions.shape) == 1:
+            predictions = predictions.unsqueeze(1)
 
-    #     predictions = predictions.view(n_samples, inputs.shape[0], -1)
-    #     gathered = predictions.gather(
-    #         dim=2,
-    #         index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, inputs.shape[0], 1)
-    #     ).squeeze(-1)
+        predictions = predictions.view(n_samples, inputs.shape[0], -1)
+        gathered = predictions.gather(
+            dim=2,
+            index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, inputs.shape[0], 1)
+        ).squeeze(-1)
         
-    #     # print(predictions)
-    #     # print(gathered)
-    #     # print(targets)
-    #     total_for_target = gathered.sum()
-    #     # print(total_for_target.shape)
+        # print(predictions)
+        # print(gathered)
+        # print(targets)
+        total_for_target = gathered.sum()
+        # print(total_for_target.shape)
         
-    #     grad = torch.autograd.grad(
-    #         outputs=total_for_target,
-    #         inputs=noisy_inputs,
-    #         retain_graph=True,
-    #         allow_unused=True
-    #     )[0]
-    #     grads = grad.mean(dim=0)
+        grad = torch.autograd.grad(
+            outputs=total_for_target,
+            inputs=noisy_inputs,
+            retain_graph=True,
+            allow_unused=True
+        )[0]
+        grads = grad.mean(dim=0)
 
-    #     # Multiply by (inputs - baseline) to get final attributions
-    #     attributions = grads * (inputs - baselines)
-    #     # print(attributions.shape)
-    #     # raise RuntimeError
+        # Multiply by (inputs - baseline) to get final attributions
+        attributions = grads * (inputs - baselines)
+        # print(attributions.shape)
+        # raise RuntimeError
         
-    #     return attributions
+        return attributions

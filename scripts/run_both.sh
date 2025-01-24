@@ -32,12 +32,12 @@ wait_n() {
 
 GPUS=(3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=4
+i=0
 num_max_jobs=5
 
 for cv in 0
 do
-    for top in 50 100 150 200 250
+    for top in 50
     do
         # o x x o o o o x o x
         # explainer_list="deep_lift gradient_shap lime dyna_mask extremal_mask gate_mask fit augmented_occlusion occlusion retain"
@@ -47,58 +47,26 @@ do
         
         # explainer_list="integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature"
         # explainer_list="our diff_abs integrated_gradients_base_abs integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature"
-        # explainer_list="our integrated_gradients_base_abs integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature"
-        explainer_list="our"
-        # --skip_train_timex \
-        # for explainer in ${explainer_list}; do
-        #     CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
-        #         --model_type state \
-        #         --explainers $explainer \
-        #         --fold $cv \
-        #         --testbs 15 \
-        #         --top $top \
-        #         --areas 0.1 \
-        #         --output-file state_cum_${cv}_${top}_results_0124.csv \
-        #         --device cuda:0 \
-        #         2>&1 &
-        #     wait_n
-        #     i=$((i + 1))
-        # done
+        explainer_list="extremal_mask_develop"
 
         for explainer in ${explainer_list}; do
-            CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
-                --model_type transformer \
-                --explainers $explainer \
-                --fold $cv \
-                --testbs 15 \
-                --top $top \
-                --areas 0.1 \
-                --output-file transformer_cum_${cv}_${top}_results_0124.csv \
-                --device cuda:0 \
-                2>&1 &
-            wait_n
-            i=$((i + 1))
+            for lambda_3 in 10.0 1.0 0.1 0.01 0
+            do
+                CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
+                    --model_type state \
+                    --explainers $explainer \
+                    --fold $cv \
+                    --testbs 30 \
+                    --top $top \
+                    --areas 0.1 \
+                    --lambda-3 $lambda_3 \
+                    --output-file state_cum_${cv}_${top}_results_ext_lr0.001_predict_keep_mask_both.csv \
+                    --device cuda:0 \
+                    2>&1 &
+                wait_n
+                i=$((i + 1))
+            done
         done
-
-        # explainer_list="extremal_mask_develop"
-        # for explainer in ${explainer_list}; do
-        #     for lambda_3 in 0.0 0.1 1.0 5.0 10.0
-        #     do
-        #         CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
-        #             --model_type state \
-        #             --explainers $explainer \
-        #             --fold $cv \
-        #             --testbs 30 \
-        #             --top $top \
-        #             --areas 0.1 \
-        #             --lambda-3 $lambda_3 \
-        #             --output-file state_cum_${cv}_${top}_results_ext_lr0.001_predict_gradient_wo_loss.csv \
-        #             --device cuda:0 \
-        #             2>&1 &
-        #         wait_n
-        #         i=$((i + 1))
-        #     done
-        # done
 
         # for explainer in ${explainer_list}; do
         #     CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \

@@ -114,4 +114,7 @@ class MimicClassifierNet(Net):
         return self(x.float(), mask=mask)
     
     def predict(self, *args, **kwargs) -> th.Tensor:
+        # print(self.net(*args, **kwargs))
+        # print(self.net(*args, **kwargs).shape)
+        # raise RuntimeError
         return self.net(*args, **kwargs).softmax(-1)

@@ -13,6 +13,8 @@ import torch.nn as nn
 import os
 from utils.tools import print_results
 
+from attribution.extremal_mask import ExtremalMask
+from attribution.extremalmasknn import *
 from attribution.gate_mask import GateMask
 from attribution.gatemasknn import *
 from attribution.motif import ShapeletExplainer
@@ -24,7 +26,7 @@ from typing import List
 
 from tint.attr import (
     DynaMask,
-    ExtremalMask,
+    # ExtremalMask,
     Fit,
     Retain,
     TemporalAugmentedOcclusion,
@@ -34,7 +36,7 @@ from tint.attr import (
     TimeForwardTunnel,
 )
 from tint.attr.models import (
-    ExtremalMaskNet,
+    # ExtremalMaskNet,
     JointFeatureGeneratorNet,
     MaskNet,
     RetainNet,
@@ -65,6 +67,7 @@ def main(
     deterministic: bool = False,
     lambda_1: float = 1.0,
     lambda_2: float = 1.0,
+    lambda_3: float = 1.0,
     output_file: str = "results.csv",
     model_type: str = "state",
     testbs: int = 0,
@@ -260,7 +263,46 @@ def main(
         )
         attr["gate_mask"] = _attr.to(device)
 
-    if "extremal_mask" in explainers:
+    # if "extremal_mask" in explainers:
+    #     trainer = Trainer(
+    #         max_epochs=500,
+    #         accelerator=accelerator,
+    #         devices=device_id,
+    #         log_every_n_steps=2,
+    #         deterministic=deterministic,
+    #         logger=TensorBoardLogger(
+    #             save_dir=".",
+    #             version=random.getrandbits(128),
+    #         ),
+    #     )
+    #     mask = ExtremalMaskNet(
+    #         forward_func=classifier.predict,
+    #         model=nn.Sequential(
+    #             RNN(
+    #                 input_size=x_test.shape[-1],
+    #                 rnn="gru",
+    #                 hidden_size=x_test.shape[-1],
+    #                 bidirectional=True,
+    #             ),
+    #             MLP([2 * x_test.shape[-1], x_test.shape[-1]]),
+    #         ),
+    #         lambda_1=lambda_1,
+    #         lambda_2=lambda_2,
+    #         loss="cross_entropy",
+    #         optim="adam",
+    #         lr=0.001,
+    #     )
+    #     explainer = ExtremalMask(classifier)
+    #     _attr = explainer.attribute(
+    #         x_test,
+    #         additional_forward_args=(data_mask, timesteps, False),
+    #         trainer=trainer,
+    #         mask_net=mask,
+    #         batch_size=100,
+    #     )
+    #     attr["extremal_mask"] = _attr.to(device)
+        
+    if "extremal_mask_develop" in explainers:
         trainer = Trainer(
             max_epochs=500,
             accelerator=accelerator,
@@ -273,7 +315,7 @@ def main(
             ),
         )
         mask = ExtremalMaskNet(
-            forward_func=classifier,
+            forward_func=classifier.predict,
             model=nn.Sequential(
                 RNN(
                     input_size=x_test.shape[-1],
@@ -285,9 +327,11 @@ def main(
             ),
             lambda_1=lambda_1,
             lambda_2=lambda_2,
+            lambda_3=lambda_3,
             loss="cross_entropy",
             optim="adam",
-            lr=0.01,
+            preservation_mode=True,
+            lr=0.001,
         )
         explainer = ExtremalMask(classifier)
         _attr = explainer.attribute(
@@ -297,7 +341,7 @@ def main(
             mask_net=mask,
             batch_size=100,
         )
-        attr["extremal_mask"] = _attr.to(device)
+        attr["extremal_mask_develop"] = _attr.to(device)
 
     if "fit" in explainers:
         generator = JointFeatureGeneratorNet(rnn_hidden_size=6)
@@ -336,7 +380,7 @@ def main(
         classifier.to(device)
 
     if "integrated_gradients" in explainers:
-        explainer = TimeForwardTunnel(IntegratedGradients(classifier))
+        explainer = TimeForwardTunnel(IntegratedGradients(classifier.predict))
 
         integrated_gradients = []
 
@@ -461,7 +505,7 @@ def main(
         attr["integrated_gradients_point_abs"] = th.cat(integrated_gradients, dim=0)
         
     if "integrated_gradients_online" in explainers:
-        explainer = IntegratedGradients(classifier)
+        explainer = IntegratedGradients(classifier.predict)
 
         integrated_gradients = []
 
@@ -495,8 +539,43 @@ def main(
         
         attr["integrated_gradients_online"] = th.cat(integrated_gradients, dim=0)
         
+    if "integrated_gradients_online_v2" in explainers:
+        explainer = IntegratedGradients(classifier.predict)
+
+        integrated_gradients = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                baselines = x_batch.clone()
+                baselines[:, t:, :] = 0
+                attr_batch[:, t, :] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, t, :].abs()
+            
+            integrated_gradients.append(attr_batch.cpu())
+        
+        attr["integrated_gradients_online_v2"] = th.cat(integrated_gradients, dim=0)
+        
     if "integrated_gradients_feature" in explainers:
-        explainer = IntegratedGradients(classifier)
+        explainer = IntegratedGradients(classifier.predict)
         
         integrated_gradients = []
         
@@ -530,6 +609,319 @@ def main(
         
         attr["integrated_gradients_feature"] = th.cat(integrated_gradients, dim=0)
         
+    if "deeplift_abs" in explainers:
+        explainer = DeepLift(classifier)
+
+        deeplift = []
+
+        # Iterate over the DataLoader to process data in batches
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+            
+            # Calculate Integrated Gradients for the current batch
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=x_batch * 0,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                #temporal_additional_forward_args=temporal_additional_forward_args,
+                #task="binary",
+                #show_progress=False  # Disable progress bar for individual batches
+            ).abs()
+            
+            # Append the IG attributes of the current batch to the list
+            deeplift.append(attr_batch.cpu())  # Move to CPU if necessary
+        
+        # Concatenate all batch IG attributes into a single tensor
+        attr["deeplift"] = th.cat(deeplift, dim=0)
+
+        
+    if "deeplift_fixed" in explainers:
+        explainer = TimeForwardTunnel(DeepLift(classifier))
+        
+        deeplift = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            attr_batch = explainer.attribute(
+                x_test,
+                baselines=x_test * 0,
+                additional_forward_args=(data_mask, timesteps, False),
+                temporal_additional_forward_args=temporal_additional_forward_args,
+                task="binary",
+                show_progress=True,
+            )
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_fixed"] = th.cat(deeplift, dim=0)
+        
+    if "deeplift_point" in explainers:
+        explainer = DeepLift(classifier)
+        
+        deeplift = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                for f in range(x_batch.shape[2]):
+                    baselines = x_batch.clone()
+                    baselines[:, t, f] = 0
+                    attr_batch[:, t, f] = explainer.attribute(
+                        x_batch,
+                        baselines=baselines,
+                        target=partial_targets,
+                        additional_forward_args=(data_mask, timesteps, False),
+                    )[:, t, f]
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_point"] = th.cat(deeplift, dim=0)
+    
+    if "deeplift_point_abs" in explainers:
+        explainer = DeepLift(classifier)
+        
+        deeplift = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                for f in range(x_batch.shape[2]):
+                    baselines = x_batch.clone()
+                    baselines[:, t, f] = 0
+                    attr_batch[:, t, f] = explainer.attribute(
+                        x_batch,
+                        baselines=baselines,
+                        target=partial_targets,
+                        additional_forward_args=(data_mask, timesteps, False),
+                    )[:, t, f].abs()
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_point_abs"] = th.cat(deeplift, dim=0)
+        
+    if "deeplift_online" in explainers:
+        explainer = DeepLift(classifier)
+
+        deeplift = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                baselines = x_batch.clone()
+                baselines[:, t, :] = 0
+                attr_batch[:, t, :] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, t, :].abs()
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_online"] = th.cat(deeplift, dim=0)
+        
+    if "deeplift_feature" in explainers:
+        explainer = DeepLift(classifier)
+        
+        deeplift = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for f in range(x_batch.shape[2]):
+                baselines = x_batch.clone()
+                baselines[:, :, f] = 0
+                attr_batch[:, :, f] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, :, f].abs()
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_feature"] = th.cat(deeplift, dim=0)
+    
+    if "gradientshap_abs" in explainers:
+        explainer = GradientShap(classifier.predict)
+
+        gradientshap = []
+
+        # Iterate over the DataLoader to process data in batches
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            
+            # Calculate Integrated Gradients for the current batch
+            attr_batch = explainer.attribute(
+                    x_batch,
+                    baselines=x_batch * 0,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                ).abs()
+            
+            
+            # Append the IG attributes of the current batch to the list
+            gradientshap.append(attr_batch.cpu())  # Move to CPU if necessary
+        
+        # Concatenate all batch IG attributes into a single tensor
+        attr["gradientshap"] = th.cat(gradientshap, dim=0)
+        
+    if "gradientshap_online" in explainers:
+        explainer = GradientShap(classifier.predict)
+
+        gradientshap = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for t in range(x_batch.shape[1]):
+                baselines = x_batch.clone()
+                baselines[:, t, :] = 0
+                attr_batch[:, t, :] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, t, :].abs()
+            
+            gradientshap.append(attr_batch.cpu())
+        
+        attr["gradientshap_online"] = th.cat(gradientshap, dim=0)
+        
+    if "gradientshap_feature" in explainers:
+        explainer = GradientShap(classifier.predict)
+        
+        gradientshap = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            attr_batch = th.zeros_like(x_batch)
+            for f in range(x_batch.shape[2]):
+                baselines = x_batch.clone()
+                baselines[:, :, f] = 0
+                attr_batch[:, :, f] = explainer.attribute(
+                    x_batch,
+                    baselines=baselines,
+                    target=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )[:, :, f].abs()
+            
+            gradientshap.append(attr_batch.cpu())
+        
+        attr["gradientshap_feature"] = th.cat(gradientshap, dim=0)
+    
+    
     if "integrated_gradients_feature_modify" in explainers:
         explainer = IntegratedGradients(classifier)
         
@@ -1422,20 +1814,20 @@ def main(
         ).abs()
 
     if "occlusion" in explainers:
-        explainer = TimeForwardTunnel(TemporalOcclusion(classifier))
+        explainer = TemporalOcclusion(classifier.predict)
         attr["occlusion"] = explainer.attribute(
             x_test,
             sliding_window_shapes=(1,),
             baselines=x_train.mean(0, keepdim=True),
             additional_forward_args=(data_mask, timesteps, False),
-            temporal_additional_forward_args=temporal_additional_forward_args,
+            # temporal_additional_forward_args=temporal_additional_forward_args,
             attributions_fn=abs,
             task="binary",
             show_progress=True,
         ).abs()
         
     if "fo_orig" in explainers:
-        explainer = Occlusion(classifier)
+        explainer = Occlusion(classifier.predict)
         attr["fo_orig"] = explainer.attribute(
             x_test,
             target=1,
@@ -1633,19 +2025,23 @@ def main(
                 )
             partial_targets = th.argmax(partial_targets, -1)
             
-            # attr_batch = explainer.attribute(
+            # attr_batch = explainer.naive_attribute(
             attr_batch = explainer.attribute_random_time_segments_one_dim_same_for_batch(
                 x_batch, 
                 baselines=x_batch * 0,
-                targets=partial_targets,
+                targets=partial_targets*0,
                 additional_forward_args=(data_mask, timesteps, False),
                 n_samples=1000,
-                num_segments=30,
+                num_segments=50,
+                min_seg_len=10,
+                #max_seg_len=30,
             ).abs()
             
             our_results.append(attr_batch.detach().cpu())
             
-        attr["timeig_1000"] = th.cat(our_results, dim=0)
+        # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
+        attr["timeig_sample1000_seg50_min10"] = th.cat(our_results, dim=0)
+        # attr["naive_ig_beta"] = th.cat(our_results, dim=0)
 
     # # Classifier and x_test to cpu
     ## classifier.to("cpu")
@@ -1784,6 +2180,7 @@ def main(
                     fp.write(k + ",")
                     fp.write(str(lambda_1) + ",")
                     fp.write(str(lambda_2) + ",")
+                    fp.write(str(lambda_3) + ",")
                     fp.write(f"{cum_diff:.4},")
                     fp.write(f"{AUCC:.4},")
                     fp.write(f"{mean_acc:.4},")
@@ -1882,6 +2279,12 @@ def parse_args():
         help="Lambda 2 hyperparameter.",
     )
     parser.add_argument(
+        "--lambda-3",
+        type=float,
+        default=0.01,    #0.01
+        help="Lambda 2 hyperparameter.",
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         default="results_gate.csv",
@@ -1940,6 +2343,7 @@ if __name__ == "__main__":
         deterministic=args.deterministic,
         lambda_1=args.lambda_1,
         lambda_2=args.lambda_2,
+        lambda_3=args.lambda_3,
         output_file=args.output_file,
         model_type=args.model_type,
         testbs=args.testbs,
