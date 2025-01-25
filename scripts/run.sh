@@ -32,15 +32,15 @@ wait_n() {
 
 GPUS=(0 1 2 3 4 5 6 7)
 NUM_GPUS=${#GPUS[@]}
-i=0
+i=4
 num_max_jobs=8
 
 for cv in 0
 do
-    for top in 50 100 150 200 250
+    for top in 50 150
     do
         # o x x o o o o x o x
-        explainer_list="deep_lift gradient_shap lime dyna_mask extremal_mask gate_mask fit augmented_occlusion occlusion retain fa our integrated_gradients_base_abs integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature"
+        explainer_list="dyna_mask extremal_mask gate_mask fit augmented_occlusion occlusion fa our integrated_gradients_base_abs integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature"
 
         #explainer_list="integrated_gradients_point_abs integrated_gradients_point"
         # explainer_list="integrated_two_stage_both gate_mask integrated_gradients_base_abs dyna_mask extremal_mask fit occlusion integrated_gradients_online integrated_gradients_feature integrated_gradients_online_feature integrated_gradients_max"
@@ -52,13 +52,13 @@ do
         # --skip_train_timex \
         for explainer in ${explainer_list}; do
             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
-                --model_type state \
+                --model_type transformer \
                 --explainers $explainer \
                 --fold $cv \
-                --testbs 20 \
+                --testbs 5 \
                 --top $top \
                 --areas 0.1 0.2 0.3 0.4 0.5\
-                --output-file state_cum_${cv}_${top}_results_0125.csv \
+                --output-file seft_cum_${cv}_${top}_results_0125.csv \
                 --device cuda:0 \
                 2>&1 &
             wait_n

@@ -62,7 +62,7 @@ class MimicClassifierNet(Net):
             
         elif model_type == "transformer":
             mimic_config = {
-                'd_inp': 31,
+                'd_inp': 32,
                 # 'd_model': 36,
                 'nhead': 1,
                 # 'nhid': 2 * 36,
