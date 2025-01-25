@@ -13,11 +13,8 @@ import torch.nn as nn
 import os
 from utils.tools import print_results
 
-from attribution.extremal_mask import ExtremalMask
-from attribution.extremalmasknn import *
 from attribution.gate_mask import GateMask
 from attribution.gatemasknn import *
-from attribution.motif import ShapeletExplainer
 from argparse import ArgumentParser
 from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime, KernelShap, DeepLiftShap
 from pytorch_lightning import Trainer, seed_everything
@@ -26,7 +23,7 @@ from typing import List
 
 from tint.attr import (
     DynaMask,
-    # ExtremalMask,
+    ExtremalMask,
     Fit,
     Retain,
     TemporalAugmentedOcclusion,
@@ -36,13 +33,14 @@ from tint.attr import (
     TimeForwardTunnel,
 )
 from tint.attr.models import (
-    # ExtremalMaskNet,
+    ExtremalMaskNet,
     JointFeatureGeneratorNet,
     MaskNet,
     RetainNet,
 )
 # from tint.datasets import Mimic3
-from datasets.mimic3 import Mimic3
+# from datasets.mimic3 import Mimic3
+from datasets.mimic3_zero import Mimic3
 from tint.metrics import (
     accuracy,
     comprehensiveness,
@@ -92,8 +90,19 @@ def main(
     mimic3 = Mimic3(n_folds=5, fold=fold, seed=seed)
 
     # Create classifier
+    # classifier = MimicClassifierNet(
+    #     feature_size=31,
+    #     n_state=2,
+    #     n_timesteps=48,
+    #     hidden_size=200,
+    #     regres=True,
+    #     loss="cross_entropy",
+    #     lr=0.0001,
+    #     l2=1e-3,
+    #     model_type=model_type
+    # )
     classifier = MimicClassifierNet(
-        feature_size=31,
+        feature_size=32,
         n_state=2,
         n_timesteps=48,
         hidden_size=200,
@@ -119,9 +128,9 @@ def main(
         trainer.fit(classifier, datamodule=mimic3)
         if not os.path.exists("./model/"):
             os.makedirs("./model/")
-        th.save(classifier.state_dict(), "./model/{}_classifier_{}_{}".format(model_type, fold, seed))
+        th.save(classifier.state_dict(), "./model/{}_classifier_{}_{}_no_imputation".format(model_type, fold, seed))
     else:
-        classifier.load_state_dict(th.load("./model/{}_classifier_{}_{}".format(model_type, fold, seed)))
+        classifier.load_state_dict(th.load("./model/{}_classifier_{}_{}_no_imputation".format(model_type, fold, seed)))
     # Get data for explainers
     with lock:
         x_train = mimic3.preprocess(split="train")["x"].to(device)
@@ -2031,16 +2040,16 @@ def main(
                 baselines=x_batch * 0,
                 targets=partial_targets*0,
                 additional_forward_args=(data_mask, timesteps, False),
-                n_samples=1000,
+                n_samples=50,
                 num_segments=50,
                 min_seg_len=10,
-                #max_seg_len=30,
+                # max_seg_len=40,
             ).abs()
             
             our_results.append(attr_batch.detach().cpu())
             
         # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
-        attr["timeig_sample1000_seg50_min10"] = th.cat(our_results, dim=0)
+        attr["timeig_sample50_seg50_min10"] = th.cat(our_results, dim=0)
         # attr["naive_ig_beta"] = th.cat(our_results, dim=0)
 
     # # Classifier and x_test to cpu

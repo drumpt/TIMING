@@ -5,4 +5,7 @@ results_gate/
 model/
 lightning_logs/
 model_zero/
+model_prev/
 motif/
+others/
+results/

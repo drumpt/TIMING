@@ -27,8 +27,8 @@ In case of any questions, bugs, suggestions or improvements, please feel free to
 
 ```shell script
 # Add from Hyeongwon
-conda create -n contralsp python=3.10
-conda activate contralsp
+conda create -n timing python=3.10
+conda activate timing
 pip install -r requirement.txt
 pip install -U tensorboardX
 ```
