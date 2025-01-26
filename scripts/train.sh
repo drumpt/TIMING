@@ -52,8 +52,9 @@
 #     --device cuda:0 \
 
 python mortality/main.py \
-    --model_type transformer \
+    --model_type state \
     --train True \
+    --data PAM \
     --explainers deeplift \
     --fold 0 \
     --device cuda:0 \

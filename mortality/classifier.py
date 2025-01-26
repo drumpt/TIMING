@@ -1,7 +1,7 @@
 import torch as th
 import os
 import sys; sys.path.append(os.path.dirname(__file__))
-from torchmetrics import Accuracy, Precision, Recall, AUROC
+from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score
 from typing import Callable, Union
 
 from hmm.classifier import StateClassifier
@@ -30,6 +30,7 @@ class MimicClassifierNet(Net):
         l2: float = 0.0,
         model_type: str = "state"
     ):
+        self.multiclass = (n_state > 2)
         if model_type == "state":
             classifier = StateClassifier(
                 feature_size=feature_size,
@@ -62,17 +63,17 @@ class MimicClassifierNet(Net):
             
         elif model_type == "transformer":
             mimic_config = {
-                'd_inp': 32,
+                'd_inp': feature_size,
                 # 'd_model': 36,
                 'nhead': 1,
                 # 'nhid': 2 * 36,
                 'nlayers': 1,
                 'enc_dropout': 0.3,
-                'max_len': 48,
+                'max_len': n_timesteps,
                 'd_static': 0,
-                'MAX': 100,
+                'MAX': n_timesteps,
                 'aggreg': 'mean',
-                'n_classes': 2,
+                'n_classes': n_state,
                 'static': False,
             }
             classifier = TransformerClassifier(**mimic_config)
@@ -89,10 +90,16 @@ class MimicClassifierNet(Net):
         self.save_hyperparameters()
 
         for stage in ["train", "val", "test"]:
-            setattr(self, stage + "_acc", Accuracy(task="binary"))
-            setattr(self, stage + "_pre", Precision(task="binary"))
-            setattr(self, stage + "_rec", Recall(task="binary"))
-            setattr(self, stage + "_auroc", AUROC(task="binary"))
+            if self.multiclass:
+                setattr(self, stage + "_acc", Accuracy(task="multiclass", num_classes=n_state))
+                setattr(self, stage + "_pre", Precision(task="multiclass", num_classes=n_state))
+                setattr(self, stage + "_rec", Recall(task="multiclass", num_classes=n_state))
+                setattr(self, stage + "_f1", F1Score(task="multiclass", num_classes=n_state))
+            else:
+                setattr(self, stage + "_acc", Accuracy(task="binary"))
+                setattr(self, stage + "_pre", Precision(task="binary"))
+                setattr(self, stage + "_rec", Recall(task="binary"))
+                setattr(self, stage + "_auroc", AUROC(task="binary"))
 
     def forward(self, *args, **kwargs) -> th.Tensor:
         return self.net(*args, **kwargs)
@@ -103,9 +110,14 @@ class MimicClassifierNet(Net):
         
         loss = self.loss(y_hat, y)
 
-        for metric in ["acc", "pre", "rec", "auroc"]:
-            getattr(self, stage + "_" + metric)(y_hat[:, 1], y.long())
-            self.log(stage + "_" + metric, getattr(self, stage + "_" + metric))
+        if self.multiclass:
+            for metric in ["acc", "pre", "rec", "f1"]:
+                getattr(self, stage + "_" + metric)(y_hat, y.long())
+                self.log(stage + "_" + metric, getattr(self, stage + "_" + metric))
+        else:
+            for metric in ["acc", "pre", "rec", "auroc"]:
+                getattr(self, stage + "_" + metric)(y_hat[:, 1], y.long())
+                self.log(stage + "_" + metric, getattr(self, stage + "_" + metric))
 
         return loss
 

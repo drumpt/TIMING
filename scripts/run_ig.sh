@@ -39,14 +39,17 @@ for cv in 0
 do
     for top in 50 100
     do
-        explainer_list="our fa integrated_gradients_online integrated_gradients_feature"
+        # explainer_list="our fa integrated_gradients_online integrated_gradients_base_abs integrated_gradients_feature"
         # explainer_list="gradientshap_abs gradientshap_online gradientshap_feature"
+        # explainer_list="our_time"
+        explainer_list="our"
         for explainer in ${explainer_list}; do
             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python mortality/main.py \
                 --model_type state \
                 --explainers $explainer \
+                --data PAM \
                 --fold $cv \
-                --testbs 30 \
+                --testbs 10 \
                 --areas 0.1 \
                 --top $top \
                 --output-file state_cum_${cv}_${top}_results.csv \

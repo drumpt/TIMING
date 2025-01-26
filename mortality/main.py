@@ -41,6 +41,7 @@ from tint.attr.models import (
 # from tint.datasets import Mimic3
 # from datasets.mimic3 import Mimic3
 from datasets.mimic3_zero import Mimic3
+from datasets.PAM import PAM
 from tint.metrics import (
     accuracy,
     comprehensiveness,
@@ -57,6 +58,7 @@ from mortality.classifier import MimicClassifierNet
 
 def main(
     explainers: List[str],
+    data: str,
     areas: list,
     device: str = "cpu",
     fold: int = 0,
@@ -87,7 +89,34 @@ def main(
     lock = mp.Lock()
 
     # Load data
-    mimic3 = Mimic3(n_folds=5, fold=fold, seed=seed)
+    if data == "mimic3":
+        datamodule = Mimic3(n_folds=5, fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=32,
+            n_state=2,
+            n_timesteps=48,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+    elif data == "PAM":
+        datamodule = PAM(fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=17,
+            n_state=8,
+            n_timesteps=600,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
 
     # Create classifier
     # classifier = MimicClassifierNet(
@@ -101,17 +130,7 @@ def main(
     #     l2=1e-3,
     #     model_type=model_type
     # )
-    classifier = MimicClassifierNet(
-        feature_size=32,
-        n_state=2,
-        n_timesteps=48,
-        hidden_size=200,
-        regres=True,
-        loss="cross_entropy",
-        lr=0.0001,
-        l2=1e-3,
-        model_type=model_type
-    )
+    
 
     # Train classifier
     trainer = Trainer(
@@ -125,20 +144,20 @@ def main(
         ),
     )
     if is_train:
-        trainer.fit(classifier, datamodule=mimic3)
-        if not os.path.exists("./model/"):
-            os.makedirs("./model/")
-        th.save(classifier.state_dict(), "./model/{}_classifier_{}_{}_no_imputation".format(model_type, fold, seed))
+        trainer.fit(classifier, datamodule=datamodule)
+        if not os.path.exists("./model/{}/".format(data)):
+            os.makedirs("./model/{}/".format(data))
+        th.save(classifier.state_dict(), "./model/{}/{}_classifier_{}_{}_no_imputation".format(data, model_type, fold, seed))
     else:
-        classifier.load_state_dict(th.load("./model/{}_classifier_{}_{}_no_imputation".format(model_type, fold, seed)))
+        classifier.load_state_dict(th.load("./model/{}/{}_classifier_{}_{}_no_imputation".format(data, model_type, fold, seed)))
     # Get data for explainers
     with lock:
-        x_train = mimic3.preprocess(split="train")["x"].to(device)
-        x_test = mimic3.preprocess(split="test")["x"].to(device)
-        y_train = mimic3.preprocess(split="train")["y"].to(device)
-        y_test = mimic3.preprocess(split="test")["y"].to(device)
-        mask_train = mimic3.preprocess(split="train")["mask"].to(device)
-        mask_test = mimic3.preprocess(split="test")["mask"].to(device)
+        x_train = datamodule.preprocess(split="train")["x"].to(device)
+        x_test = datamodule.preprocess(split="test")["x"].to(device)
+        y_train = datamodule.preprocess(split="train")["y"].to(device)
+        y_test = datamodule.preprocess(split="test")["y"].to(device)
+        mask_train = datamodule.preprocess(split="train")["mask"].to(device)
+        mask_test = datamodule.preprocess(split="test")["mask"].to(device)
 
     # Switch to eval
     classifier.eval()
@@ -327,7 +346,7 @@ def main(
         explainer = Fit(
             classifier.predict,
             generator=generator,
-            datamodule=mimic3,
+            datamodule=datamodule,
             trainer=trainer,
             features=x_train,
         )
@@ -1796,7 +1815,7 @@ def main(
             loss="cross_entropy",
         )
         explainer = Retain(
-            datamodule=mimic3,
+            datamodule=datamodule,
             retain=retain,
             trainer=Trainer(
                 max_epochs=50,
@@ -1962,19 +1981,58 @@ def main(
             attr_batch = explainer.attribute_random_time_segments_one_dim_same_for_batch(
                 x_batch, 
                 baselines=x_batch * 0,
-                targets=partial_targets*0,
+                targets=partial_targets,
                 additional_forward_args=(data_mask, timesteps, False),
                 n_samples=50,
-                num_segments=50,
-                min_seg_len=10,
+                num_segments=100,
+                min_seg_len=100,
                 # max_seg_len=40,
             ).abs()
             
             our_results.append(attr_batch.detach().cpu())
             
         # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
-        attr["timeig_sample50_seg50_min10"] = th.cat(our_results, dim=0)
+        attr["timeig_sample50_seg100_min100"] = th.cat(our_results, dim=0)
         # attr["naive_ig_beta"] = th.cat(our_results, dim=0)
+
+    if "our_time" in explainers:
+        from attribution.explainers import OUR
+        
+        explainer = OUR(classifier.predict)
+
+        our_results = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+            
+            # attr_batch = explainer.naive_attribute(
+            attr_batch = explainer.attribute_random_dim_segments_one_time_same_for_batch(
+                x_batch, 
+                baselines=x_batch * 0,
+                targets=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                n_samples=50,
+                num_segments=1,
+                min_seg_len=5,
+                max_seg_len=10,
+            ).abs()
+            
+            our_results.append(attr_batch.detach().cpu())
+            
+        # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
+        attr["timeig_time_sample50_seg1_min10_max10"] = th.cat(our_results, dim=0)
 
     # # Classifier and x_test to cpu
     ## classifier.to("cpu")
@@ -2156,6 +2214,12 @@ def parse_args():
         help="List of explainer to use.",
     )
     parser.add_argument(
+        "--data",
+        type=str,
+        default="mimic3",
+        help="real world data",
+    )
+    parser.add_argument(
         "--areas",
         type=float,
         default=[
@@ -2268,6 +2332,7 @@ if __name__ == "__main__":
     set_seed(args.seed)
     main(
         explainers=args.explainers,
+        data=args.data,
         areas=args.areas,
         device=args.device,
         fold=args.fold,
