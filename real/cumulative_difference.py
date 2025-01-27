@@ -193,4 +193,4 @@ def cumulative_difference(
     # print(mean_cumulative_differences)
     # print(np.cumsum(mean_cumulative_differences))
 
-    return sum(mean_cumulative_differences), aucc
+    return sum(mean_cumulative_differences), aucc, sum(mean_cumulative_differences[:50])

@@ -4,7 +4,7 @@ import sys; sys.path.append(os.path.dirname(__file__))
 from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score
 from typing import Callable, Union
 
-from hmm.classifier import StateClassifier
+from synthetic.hmm.classifier import StateClassifier
 from models.set import mTANDClassifier, SeFTClassifier
 from models.transformer import TransformerClassifier
 
