@@ -21,6 +21,7 @@ class TimeXExplainer:
         device: torch.device,
         num_features: int,
         num_classes: int,
+        max_len: int,
         data_name: str = "default",
         split: int = 0,
         is_timex: bool = True,
@@ -32,17 +33,18 @@ class TimeXExplainer:
         :param num_classes: Number of output classes for classification.
         :param data_name: Optional string naming the dataset, e.g. 'mimic'.
         """
-        self.model = model.to(device)
+        self.model = model
         self.device = device
         self.num_features = num_features
         self.num_classes = num_classes
+        self.max_len = max_len
         self.data_name = data_name
         self.is_timex = is_timex
         self.split = split
 
         self.timex_model = None
 
-    def train_timex(self, x_train, y_train, x_test, y_test, skip_training):
+    def train_timex(self, x_train, y_train, x_test, y_test, encoder_path, skip_training):
         from torch.utils.data import DataLoader, TensorDataset
         timesteps=(
             torch.linspace(0, 1, x_train.shape[1], device=x_train.device)
@@ -62,12 +64,12 @@ class TimeXExplainer:
             from txai.models.bc_model import TimeXModel, AblationParameters, transformer_default_args
             from txai.trainers.train_mv6_consistency import train_mv6_consistency
         
-        tencoder_path = "./model/transformer_classifier_0_42"
+        tencoder_path = encoder_path
 
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         clf_criterion = Poly1CrossEntropyLoss(
-            num_classes = 2,
+            num_classes = self.num_classes,
             epsilon = 1.0,
             weight = None,
             reduction = 'mean'
@@ -79,7 +81,12 @@ class TimeXExplainer:
         sim_criterion = [sim_criterion_cons, sim_criterion_label]
         selection_criterion = simloss_on_val_wboth(sim_criterion, lam = 1.0)
         
+        
         targs = transformer_default_args
+        if "transformer" in tencoder_path:
+            archtype = "transformer"
+        elif "state" in tencoder_path:
+            archtype = "gru"
         
         all_indices = np.arange(x_train.shape[1])
 
@@ -118,6 +125,7 @@ class TimeXExplainer:
             ptype_assimilation = True, 
             side_assimilation = True,
             use_ste = True,
+            archtype = archtype
         )
 
         loss_weight_dict = {
@@ -130,8 +138,8 @@ class TimeXExplainer:
         targs['norm_embedding'] = False
 
         model = TimeXModel(
-            d_inp = 31,
-            max_len = 48,
+            d_inp = self.num_features,
+            max_len = self.max_len,
             n_classes = self.num_classes,
             n_prototypes = 50,
             gsat_r = 0.5,
@@ -143,10 +151,14 @@ class TimeXExplainer:
         orig_state_dict = torch.load(tencoder_path)
         
         state_dict = {}
+        # print(orig_state_dict)
  
         for k, v in orig_state_dict.items():
-            if "net." in k:
-                name = k.replace("net.", "")
+            if "net.regressor" in k:
+                name = k.replace("net.regressor", "mlp")
+                state_dict[name] = v
+            if "net.rnn" in k:
+                name = k.replace("net.rnn", "encoder")
                 state_dict[name] = v
             
         model.encoder_main.load_state_dict(state_dict)
@@ -167,7 +179,7 @@ class TimeXExplainer:
             optimizer = torch.optim.AdamW(model.parameters(), lr = 5e-4, weight_decay = 0.001)
 
      
-        spath = f'./model/timex_{self.data_name}_split_{self.split}'
+        spath = f'./model/{self.data_name}/timex_split_{self.split}'
         if self.is_timex == False:
             spath += "_timexplus"
 

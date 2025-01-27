@@ -109,6 +109,10 @@ def main(
             l2=1e-3,
             model_type=model_type
         )
+        num_features = 32
+        num_classes = 2
+        max_len = 48
+        
     elif data == "PAM":
         datamodule = PAM(fold=fold, seed=seed)
         
@@ -123,6 +127,9 @@ def main(
             l2=1e-3,
             model_type=model_type
         )
+        num_features = 17
+        num_classes = 8
+        max_len = 600
 
     # Create classifier
     # classifier = MimicClassifierNet(
@@ -199,7 +206,7 @@ def main(
     )
         
     if "deep_lift" in explainers:
-        explainer = TimeForwardTunnel(DeepLift(classifier.predict))
+        explainer = TimeForwardTunnel(DeepLift(classifier))
         attr["deep_lift"] = explainer.attribute(
             x_test,
             baselines=x_test * 0,
@@ -346,18 +353,37 @@ def main(
         )
         attr["fit"] = explainer.attribute(x_test, additional_forward_args=(data_mask, timesteps, False), show_progress=True)
 
+    # if "winit" in explainers:
+    #     pass
+
     if "gradient_shap" in explainers:
-        explainer = TimeForwardTunnel(GradientShap(classifier.predict.cpu()))
-        attr["gradient_shap"] = explainer.attribute(
-            x_test.cpu(),
-            baselines=th.cat([x_test.cpu() * 0, x_test.cpu()]),
-            n_samples=50,
-            stdevs=0.0001,
-            additional_forward_args=(data_mask, timesteps, False),
-            temporal_additional_forward_args=temporal_additional_forward_args,
-            task="binary",
-            show_progress=True,
-        ).abs()
+        explainer = TimeForwardTunnel(GradientShap(classifier.predict))
+        gradient_shap = []
+
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=th.cat([x_batch * 0, x_batch]),
+                n_samples=50,
+                stdevs=0.0001,
+                additional_forward_args=(data_mask, timesteps, False),
+                temporal_additional_forward_args=temporal_additional_forward_args,
+                task="binary",
+                show_progress=True,
+            ).abs()
+            
+            # Append the IG attributes of the current batch to the list
+            gradient_shap.append(attr_batch.cpu())  # Move to CPU if necessary
+        
+        # Concatenate all batch IG attributes into a single tensor
+        attr["gradient_shap"] = th.cat(gradient_shap, dim=0)
+        
+       
         classifier.to(device)
 
     if "integrated_gradients" in explainers:
@@ -842,7 +868,7 @@ def main(
             ),
         )
         attr["retain"] = (
-            explainer.attribute(x_test, target=y_test, additional_forward_args=(data_mask, timesteps, False)).abs().to(device)
+            explainer.attribute(x_test, target=y_test).abs().to(device)
         )
         
     if "timex" in explainers:
@@ -850,14 +876,15 @@ def main(
         explainer = TimeXExplainer(
             model=classifier.predict,
             device=x_test.device,
-            num_features=31,
-            num_classes=2,
-            data_name='mimic',
+            num_features=num_features,
+            num_classes=num_classes,
+            max_len=max_len,
+            data_name=data,
             split=fold,
             is_timex=True,
         )
         
-        explainer.train_timex(x_train, y_train, x_test, y_test, skip_train_timex)
+        explainer.train_timex(x_train, y_train, x_test, y_test, "./model/{}/{}_classifier_{}_{}_no_imputation".format(data, model_type, fold, seed), skip_train_timex)
             
         timex_results = []
 
@@ -882,9 +909,10 @@ def main(
         explainer = TimeXExplainer(
             model=classifier.predict,
             device=x_test.device,
-            num_features=31,
-            num_classes=2,
-            data_name='mimic',
+            num_features=num_features,
+            num_classes=num_classes,
+            max_len=max_len,
+            data_name=data,
             split=fold,
             is_timex=False,
         )

@@ -10,7 +10,7 @@ from tint.models import MLP, RNN
 from txai.utils.predictors.loss import GSATLoss, ConnectLoss
 from txai.utils.predictors.loss_smoother_stats import *
 from txai.utils.functional import js_divergence, stratified_sample
-from txai.models.encoders.simple import CNN, LSTM
+from txai.models.encoders.simple import CNN, LSTM, GRU
 
 transformer_default_args = {
     'enc_dropout': None,
@@ -122,6 +122,13 @@ class TimeXModel(nn.Module):
                 n_classes = self.n_classes,
             )
             self.d_z = 128
+        elif self.ablation_parameters.archtype == 'gru':
+            self.encoder_main = GRU(
+                d_inp = d_inp,
+                n_classes = self.n_classes,
+                dim = 200
+            )
+            self.d_z = 200
 
         self.encoder_pret = TransformerMVTS(
             d_inp = d_inp,  # Dimension of input from samples (must be constant)

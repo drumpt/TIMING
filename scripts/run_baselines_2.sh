@@ -6,12 +6,17 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3)
+GPUS=(0 1 2 3 4 5 6)
 NUM_GPUS=${#GPUS[@]}
-i=0
-num_max_jobs=4
+i=2
+num_max_jobs=7
 
-explainer_list="integrated_gradients_online integrated_gradients_feature integrated_gradients_base_abs dyna_mask occlusion"
+# explainer_list="integrated_gradients_online integrated_gradients_feature integrated_gradients_base_abs dyna_mask occlusion"
+# explainer_list="deep_lift"
+# explainer_list="gradient_shap"
+# explainer_list="fit WinIT"
+# explainer_list="timex timex++"
+explainer_list="timex"
 for explainer in ${explainer_list}; do
     for cv in 0 1 2 3 4
     do
@@ -22,7 +27,7 @@ for explainer in ${explainer_list}; do
                 --explainers $explainer \
                 --data mimic3 \
                 --fold $cv \
-                --testbs 20 \
+                --testbs 100 \
                 --areas 0.2 \
                 --top $top \
                 --output-file state_mimic3_${cv}_${top}_results_baseline.csv \

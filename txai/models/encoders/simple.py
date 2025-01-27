@@ -84,3 +84,39 @@ class LSTM(nn.Module):
             return out, embedding
         else:
             return out
+
+
+class GRU(nn.Module):
+    def __init__(self, d_inp, n_classes, dim=128, dropout=0.5):
+        super().__init__()
+        self.encoder = nn.GRU(
+            d_inp,
+            dim,
+            batch_first=True,
+            bidirectional=False,
+        )
+
+        self.mlp = nn.Sequential(
+            nn.BatchNorm1d(num_features=dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim, n_classes),
+        )
+
+    def forward(self, x, _times, get_embedding=False, captum_input=False, show_sizes=False):
+        if not captum_input: 
+            if len(x.shape) == 2:
+                x = x.unsqueeze(1)
+            # time, batch, channels -> batch, time, channels
+            x = x.permute(1, 0, 2)
+        elif len(x.shape) == 2:
+            x = x.unsqueeze(0)
+
+        embedding, _ = self.encoder(x)
+        embedding = embedding.mean(dim=1) # mean over time
+        out = self.mlp(embedding)
+
+        if get_embedding:
+            return out, embedding
+        else:
+            return out
