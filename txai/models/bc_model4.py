@@ -109,7 +109,7 @@ class TimeXModel(nn.Module):
                 n_classes = self.n_classes,
             )
             self.d_z = 128
-        elif self.ablation_parameters.archtype == 'gru':
+        elif self.ablation_parameters.archtype == 'state':
             self.encoder_main = GRU(
                 d_inp = d_inp,
                 n_classes = self.n_classes,
@@ -142,7 +142,7 @@ class TimeXModel(nn.Module):
                 d_inp = d_inp,
                 n_classes = self.n_classes,
             )
-        elif self.ablation_parameters.archtype == 'gru':
+        elif self.ablation_parameters.archtype == 'state':
             self.encoder_t = GRU(
                 d_inp = d_inp,
                 n_classes = self.n_classes,

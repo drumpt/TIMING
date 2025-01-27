@@ -86,7 +86,7 @@ class TimeXExplainer:
         if "transformer" in tencoder_path:
             archtype = "transformer"
         elif "state" in tencoder_path:
-            archtype = "gru"
+            archtype = "state"
         
         all_indices = np.arange(x_train.shape[1])
 
@@ -179,7 +179,7 @@ class TimeXExplainer:
             optimizer = torch.optim.AdamW(model.parameters(), lr = 5e-4, weight_decay = 0.001)
 
      
-        spath = f'./model/{self.data_name}/timex_split_{self.split}'
+        spath = f'./model/{self.data_name}/{archtype}_timex_split_{self.split}'
         if self.is_timex == False:
             spath += "_timexplus"
 

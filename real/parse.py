@@ -6,7 +6,7 @@ from pathlib import Path
 
 model = "state"
 data = "mimic3"
-experiment_name = "_baseline"
+experiment_name = "_baseline_fix"
 
 # Define the base file name pattern
 file_pattern = "{model}_{data}_{cv}_{top}_results{experiment_name}.csv"

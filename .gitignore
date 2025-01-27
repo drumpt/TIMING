@@ -1,4 +1,11 @@
-data/
+data/boiler/
+data/mimic3/
+data/epilepsy/
+data/freezer/
+data/mimic3/
+data/PAM/
+data/wafer/
+generator/
 *.csv
 plot/
 results_gate/

@@ -204,17 +204,6 @@ def main(
         .unsqueeze(0)
         .repeat(data_len, 1)
     )
-        
-    if "deep_lift" in explainers:
-        explainer = TimeForwardTunnel(DeepLift(classifier))
-        attr["deep_lift"] = explainer.attribute(
-            x_test,
-            baselines=x_test * 0,
-            additional_forward_args=(data_mask, timesteps, False),
-            temporal_additional_forward_args=temporal_additional_forward_args,
-            task="binary",
-            show_progress=True,
-        ).abs()
 
     if "dyna_mask" in explainers:
         trainer = Trainer(
@@ -332,88 +321,77 @@ def main(
         attr["extremal_mask"] = _attr.to(device)
   
     if "fit" in explainers:
-        generator = JointFeatureGeneratorNet(rnn_hidden_size=6)
-        trainer = Trainer(
-            max_epochs=200,
-            accelerator=accelerator,
-            devices=device_id,
-            log_every_n_steps=10,
-            deterministic=deterministic,
-            logger=TensorBoardLogger(
-                save_dir=".",
-                version=random.getrandbits(128),
-            ),
-        )
-        explainer = Fit(
-            classifier.predict,
-            generator=generator,
+        from attribution.winit import FIT
+        
+        skip_training = skip_train_timex # consider this
+        
+        generator_path = Path("./generator/") / data / f"{model_type}_split_{fold}"
+        generator_path.mkdir(parents=True, exist_ok=True)
+        explainer = FIT(
+            classifier,
+            device=device,
             datamodule=datamodule,
-            trainer=trainer,
-            features=x_train,
+            data_name=data,
+            feature_size=num_features,
+            path=generator_path,
+            cv=fold,
         )
-        attr["fit"] = explainer.attribute(x_test, additional_forward_args=(data_mask, timesteps, False), show_progress=True)
+        
+        if skip_training:
+            explainer.load_generators()
+        else:
+            explainer.train_generators(300)
+        
+        fit = []
 
-    # if "winit" in explainers:
-    #     pass
-
-    if "gradient_shap" in explainers:
-        explainer = TimeForwardTunnel(GradientShap(classifier.predict))
-        gradient_shap = []
-
-        for batch in test_loader:
+        for batch in tqdm(test_loader):
             x_batch = batch[0].to(device)
             data_mask = batch[1].to(device)
             batch_size = x_batch.shape[0]
             timesteps = timesteps[:batch_size, :]
             
-            attr_batch = explainer.attribute(
-                x_batch,
-                baselines=th.cat([x_batch * 0, x_batch]),
-                n_samples=50,
-                stdevs=0.0001,
-                additional_forward_args=(data_mask, timesteps, False),
-                temporal_additional_forward_args=temporal_additional_forward_args,
-                task="binary",
-                show_progress=True,
-            ).abs()
+            attr_batch = explainer.attribute(x_batch)
             
-            # Append the IG attributes of the current batch to the list
-            gradient_shap.append(attr_batch.cpu())  # Move to CPU if necessary
+            fit.append(attr_batch)
         
-        # Concatenate all batch IG attributes into a single tensor
-        attr["gradient_shap"] = th.cat(gradient_shap, dim=0)
+        attr["fit"] = th.Tensor(np.concatenate(fit, axis=0)) 
+
+    if "winit" in explainers:
+        from attribution.winit import WinIT
         
-       
-        classifier.to(device)
+        skip_training = skip_train_timex # consider this
+        
+        generator_path = Path("./generator/") / data / f"{model_type}_split_{fold}"
+        generator_path.mkdir(parents=True, exist_ok=True)
+        explainer = WinIT(
+            classifier,
+            device=device,
+            datamodule=datamodule,
+            data_name=data,
+            feature_size=num_features,
+            path=generator_path,
+            cv=fold,
+        )
+        
+        if skip_training:
+            explainer.load_generators()
+        else:
+            explainer.train_generators(300)
+        
+        winit = []
 
-    if "integrated_gradients" in explainers:
-        explainer = TimeForwardTunnel(IntegratedGradients(classifier.predict))
-
-        integrated_gradients = []
-
-        # Iterate over the DataLoader to process data in batches
-        for batch in test_loader:
-            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+        for batch in tqdm(test_loader):
+            x_batch = batch[0].to(device)
             data_mask = batch[1].to(device)
             batch_size = x_batch.shape[0]
             timesteps = timesteps[:batch_size, :]
             
-            # Calculate Integrated Gradients for the current batch
-            attr_batch = explainer.attribute(
-                x_batch,
-                baselines=x_batch * 0,
-                additional_forward_args=(data_mask, timesteps, False),
-                temporal_additional_forward_args=temporal_additional_forward_args,
-                task="binary",
-                show_progress=False  # Disable progress bar for individual batches
-            ).abs()
+            attr_batch = explainer.attribute(x_batch)
             
-            # Append the IG attributes of the current batch to the list
-            integrated_gradients.append(attr_batch.cpu())  # Move to CPU if necessary
+            winit.append(attr_batch)
         
-        # Concatenate all batch IG attributes into a single tensor
-        attr["integrated_gradients"] = th.cat(integrated_gradients, dim=0)
-        
+        attr["winit"] = th.Tensor(np.concatenate(winit, axis=0)) 
+
     if "integrated_gradients_online" in explainers:
         explainer = IntegratedGradients(classifier.predict)
 
@@ -506,21 +484,15 @@ def main(
                 )
             partial_targets = th.argmax(partial_targets, -1)
             
-            # Calculate Integrated Gradients for the current batch
             attr_batch = explainer.attribute(
                 x_batch,
                 baselines=x_batch * 0,
                 target=partial_targets,
                 additional_forward_args=(data_mask, timesteps, False),
-                #temporal_additional_forward_args=temporal_additional_forward_args,
-                #task="binary",
-                #show_progress=False  # Disable progress bar for individual batches
             ).abs()
             
-            # Append the IG attributes of the current batch to the list
-            deeplift.append(attr_batch.cpu())  # Move to CPU if necessary
+            deeplift.append(attr_batch.cpu())
         
-        # Concatenate all batch IG attributes into a single tensor
         attr["deeplift_abs"] = th.cat(deeplift, dim=0)
     
     ####  deeplift classfiier.predict error occur
@@ -617,11 +589,12 @@ def main(
             partial_targets = th.argmax(partial_targets, -1)
 
             
-            # Calculate Integrated Gradients for the current batch
             attr_batch = explainer.attribute(
                     x_batch,
-                    baselines=x_batch * 0,
+                    baselines=(th.cat([x_batch * 0, x_batch])),
                     target=partial_targets,
+                    n_samples=50,
+                    stdevs=0.0001,
                     additional_forward_args=(data_mask, timesteps, False),
                 ).abs()
             
@@ -777,6 +750,36 @@ def main(
             task="binary",
             show_progress=True,
         ).abs()
+        
+    # if "lime_abs" in explainers:
+    #     explainer = Lime(classifier.predict)
+    #     lime = []
+
+    #     for batch in test_loader:
+    #         x_batch = batch[0].to(device)
+    #         data_mask = batch[1].to(device)
+    #         batch_size = x_batch.shape[0]
+    #         timesteps = timesteps[:batch_size, :]
+            
+    #         from captum._utils.common import _run_forward
+    #         with th.autograd.set_grad_enabled(False):
+    #             partial_targets = _run_forward(
+    #                 classifier,
+    #                 x_batch,
+    #                 additional_forward_args=(data_mask, timesteps, False),
+    #             )
+    #         partial_targets = th.argmax(partial_targets, -1)
+
+    #         attr_batch = explainer.attribute(
+    #             x_batch,
+    #             target=partial_targets,
+    #             additional_forward_args=(data_mask, timesteps, False),
+    #         ).abs()
+        
+    #         lime.append(attr_batch.cpu())
+        
+    #     attr["lime_abs"] = th.cat(lime, dim=0)
+
 
     if "augmented_occlusion" in explainers:
         explainer = TimeForwardTunnel(
@@ -795,13 +798,13 @@ def main(
         ).abs()
 
     if "occlusion" in explainers:
-        explainer = TemporalOcclusion(classifier.predict)
+        explainer = TimeForwardTunnel(TemporalOcclusion(classifier.predict))
         attr["occlusion"] = explainer.attribute(
             x_test,
             sliding_window_shapes=(1,),
             baselines=x_train.mean(0, keepdim=True),
             additional_forward_args=(data_mask, timesteps, False),
-            # temporal_additional_forward_args=temporal_additional_forward_args,
+            temporal_additional_forward_args=temporal_additional_forward_args,
             attributions_fn=abs,
             show_progress=True,
         ).abs()
@@ -917,7 +920,7 @@ def main(
             is_timex=False,
         )
         
-        explainer.train_timex(x_train, y_train, x_test, y_test, skip_train_timex)
+        explainer.train_timex(x_train, y_train, x_test, y_test, "./model/{}/{}_classifier_{}_{}_no_imputation".format(data, model_type, fold, seed), skip_train_timex)
             
         timex_results = []
 
@@ -1953,17 +1956,7 @@ def parse_args():
         "--explainers",
         type=str,
         default=[
-            # "deep_lift",
-            # "dyna_mask",
-            # "extremal_mask",    #1018265, mean(0.2939）
-            "gate_mask",    #577485
-            # "fit",
-            # "gradient_shap",
-            # "integrated_gradients",
-            # "lime",
-            # "augmented_occlusion",
-            # "occlusion",
-            # "retain",
+            "gate_mask"
         ],
         nargs="+",
         metavar="N",
