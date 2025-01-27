@@ -11,7 +11,7 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=4
 
-for cv in 3 4
+for cv in 0 1 2
 do
     for top in 100
     do

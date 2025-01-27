@@ -45,6 +45,7 @@ def cumulative_difference(
     **kwargs,
 ) -> float:
     # Format data
+    return_all = additional_forward_args[2]
     inputs = _format_tensor_into_tuples(inputs)  # type: ignore
     additional_forward_args = _format_additional_forward_args(
         additional_forward_args
@@ -77,7 +78,6 @@ def cumulative_difference(
 
         batch_inputs = tuple(inp[start_idx:end_idx] for inp in inputs)
         batch_attributions = tuple(attr[start_idx:end_idx] for attr in attributions)
-        
 
         # Get top-k indices for each batch
         if top > 0:
@@ -131,13 +131,13 @@ def cumulative_difference(
             forward_func=forward_func,
             inputs=batch_inputs,
             target=None,
-            additional_forward_args=(None, None, False),
+            additional_forward_args=(None, None, return_all),
         )
         logits_first = _run_forward(
             forward_func=forward_func,
             inputs=inputs_pert_first,
             target=None,
-            additional_forward_args=(None, None, False),
+            additional_forward_args=(None, None, return_all),
         )
 
         prob_orig = logits_orig.softmax(-1)
@@ -166,7 +166,7 @@ def cumulative_difference(
                 forward_func=forward_func,
                 inputs=inputs_pert_step,
                 target=None,
-                additional_forward_args=(None, None, False),
+                additional_forward_args=(None, None, return_all),
             )
 
             prob_step = logits_step.softmax(-1)

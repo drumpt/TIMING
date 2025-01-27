@@ -199,7 +199,7 @@ def main(
     )
         
     if "deep_lift" in explainers:
-        explainer = TimeForwardTunnel(DeepLift(classifier.preidct))
+        explainer = TimeForwardTunnel(DeepLift(classifier.predict))
         attr["deep_lift"] = explainer.attribute(
             x_test,
             baselines=x_test * 0,
@@ -677,7 +677,7 @@ def main(
         attr["gradientshap_feature"] = th.cat(gradientshap, dim=0)
         
     if "integrated_gradients_base" in explainers:
-        explainer = IntegratedGradients(classifier)
+        explainer = IntegratedGradients(classifier.predict)
         
         integrated_gradients = []
 
@@ -777,7 +777,6 @@ def main(
             additional_forward_args=(data_mask, timesteps, False),
             # temporal_additional_forward_args=temporal_additional_forward_args,
             attributions_fn=abs,
-            task="binary",
             show_progress=True,
         ).abs()
         
@@ -1795,6 +1794,7 @@ def main(
                             testbs=testbs,
                             additional_forward_args=(mask_test, timesteps, False),
                         )
+                        
                     else:
                         cum_diff = 0.0
                         AUCC = 0.0
