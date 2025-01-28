@@ -83,6 +83,7 @@ def main(
     top: int = 50,
     skip_train_motif: bool = True,
     skip_train_timex: bool = True,
+    prob: float = 0.1 ,
 ):
     # If deterministic, seed everything
     if deterministic:
@@ -921,35 +922,6 @@ def main(
             #temporal_additional_forward_args=temporal_additional_forward_args,
             show_progress=True,
         ).abs()
-
-    if "retain" in explainers:
-        retain = RetainNet(
-            dim_emb=128,
-            dropout_emb=0.4,
-            dim_alpha=8,
-            dim_beta=8,
-            dropout_context=0.4,
-            dim_output=2,
-            temporal_labels=False,
-            loss="cross_entropy",
-        )
-        explainer = Retain(
-            datamodule=datamodule,
-            retain=retain,
-            trainer=Trainer(
-                max_epochs=50,
-                accelerator=accelerator,
-                devices=device_id,
-                deterministic=deterministic,
-                logger=TensorBoardLogger(
-                    save_dir=".",
-                    version=random.getrandbits(128),
-                ),
-            ),
-        )
-        attr["retain"] = (
-            explainer.attribute(x_test, target=y_test).abs().to(device)
-        )
         
     if "timex" in explainers:
         from attribution.timex import TimeXExplainer
@@ -1697,6 +1669,45 @@ def main(
         # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
         attr[f"timing_sample50_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = th.cat(our_results, dim=0)
 
+    if "our_random" in explainers:
+        from attribution.explainers import OUR
+
+        explainer = OUR(classifier.predict)
+
+        our_results = []
+
+        for batch in tqdm(test_loader):
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+
+            from captum._utils.common import _run_forward
+
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            # attr_batch = explainer.naive_attribute(
+            attr_batch = explainer.attribute_random(
+                x_batch,
+                baselines=x_batch * 0,
+                targets=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                n_samples=50,
+                prob=prob,
+            ).abs()
+
+            our_results.append(attr_batch.detach().cpu())
+
+        # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
+        attr[f"randomig_prob{prob}"] = th.cat(our_results, dim=0)
+
+
     if "our_timewise_ig" in explainers:
         from attribution.explainers import OUR
 
@@ -1873,6 +1884,8 @@ def main(
 
     # Compute x_avg for the baseline
     x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
+    
+    # print
 
     # Dict for baselines
     baselines_dict = {0: "Average", 1: "Zeros"}
@@ -2107,6 +2120,12 @@ def parse_args():
         help="learning rate for mask based method",
     )
     parser.add_argument(
+        "--prob",
+        type=float,
+        default=0.1,   
+        help="asff",
+    )
+    parser.add_argument(
         "--output-file",
         type=str,
         default="results_gate.csv",
@@ -2191,6 +2210,7 @@ if __name__ == "__main__":
         testbs=args.testbs,
         top=args.top,
         skip_train_motif=args.skip_train_motif,
-        skip_train_timex=args.skip_train_timex
+        skip_train_timex=args.skip_train_timex,
+        prob=args.prob
     )
 

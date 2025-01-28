@@ -66,9 +66,9 @@ for col in result.columns:
         result[col] = result[col] * 100
 
 # for mimic, only when my code is wrong...
-for col in result.columns:
-    if "top" in col:
-        result[col] = result[col] / 2
+# for col in result.columns:
+#     if "top" in col:
+#         result[col] = result[col] / 2
 
 result = result.applymap(lambda x: f"{x:.3f}")
 

@@ -11,29 +11,32 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=5
 
+data=epilepsy
+
+# for cv in 0 1 2 3 4
 for cv in 0 1 2 3 4
 do
-    for top in 100
+    for top in 0
     do
-        for prob in 0.1 0.3 0.5 0.7 0.9
-        do
-            explainer_list="our_random"
+        # for prob in 0.1 0.3 0.5 0.7 0.9
+        # do
+        # --prob $prob \
+            explainer_list="integrated_gradients_base_abs"
             for explainer in ${explainer_list}; do
                 CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
                     --model_type state \
                     --explainers $explainer \
-                    --data mimic3 \
+                    --data $data \
                     --fold $cv \
                     --testbs 30 \
-                    --areas 0.2 \
+                    --areas 0.1 \
                     --top $top \
-                    --prob $prob \
-                    --output-file state_mimic3_${cv}_${top}_results_random.csv \
+                    --output-file state_${data}_${cv}_${top}_results_fix.csv \
                     --device cuda:0 \
                     2>&1 &
                 wait_n
                 i=$((i + 1))
-            done
+            #done
         done
     done
 done

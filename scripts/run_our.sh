@@ -6,20 +6,20 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3)
+GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=4
+num_max_jobs=5
 
-for cv in 0 1 2
+for cv in 0 1 2 3 4 
 do
     for top in 100
     do
-        for num_segments in 30 40 50 60 70
+        for num_segments in 70
         do
-            for min_seg_len in 1 5 10
+            for min_seg_len in 1
             do
-                for max_seg_len in 48 36 24 12
+                for max_seg_len in 48
                 do
                     explainer_list="our"
                     for explainer in ${explainer_list}; do

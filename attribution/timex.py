@@ -79,8 +79,8 @@ class TimeXExplainer:
         sim_criterion_cons = EmbedConsistencyLoss(normalize_distance = True)
         
         sim_criterion = [sim_criterion_cons, sim_criterion_label]
+
         selection_criterion = simloss_on_val_wboth(sim_criterion, lam = 1.0)
-        
         
         targs = transformer_default_args
         if "transformer" in tencoder_path:

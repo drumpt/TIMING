@@ -58,13 +58,13 @@ wait_n() {
     fi
 }
 
-GPUS=(5 6 7)
+GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=3
+num_max_jobs=5
 
 # boiler epilepsy
-for data in PAM
+for data in mimic3
 do
     for cv in 0 1 2 3 4
     do

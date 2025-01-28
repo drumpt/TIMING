@@ -214,11 +214,11 @@ class PAM(DataModule):
         EPS = 1e-5
         features = (features - self._mean) / (self._std + EPS)
             
-        print(features.shape)
-        print(data.y.shape)
-        print(th.ones_like(features).shape)
+        # print(features.shape)
+        # print(data.y.shape)
+        # print(th.ones_like(features).shape)
         
-        print(data_dict[split])
+        # print(data_dict[split])
         
 
         return {
