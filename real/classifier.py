@@ -5,7 +5,7 @@ from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score
 from typing import Callable, Union
 
 from synthetic.hmm.classifier import StateClassifier
-from models.set import mTANDClassifier, SeFTClassifier
+# from models.set import mTANDClassifier, SeFTClassifier
 from models.transformer import TransformerClassifier
 
 from tint.models import Net
@@ -42,24 +42,24 @@ class MimicClassifierNet(Net):
                 bidirectional=bidirectional,
             )
 
-        elif model_type == "mtand":
-            classifier = mTANDClassifier(
-                feature_size=feature_size,
-                n_state=n_state,
-                n_timesteps=n_timesteps,
-                hidden_size=hidden_size,
-                rnn=rnn,
-                dropout=dropout,
-                bidirectional=bidirectional,
-            )
+        # elif model_type == "mtand":
+        #     classifier = mTANDClassifier(
+        #         feature_size=feature_size,
+        #         n_state=n_state,
+        #         n_timesteps=n_timesteps,
+        #         hidden_size=hidden_size,
+        #         rnn=rnn,
+        #         dropout=dropout,
+        #         bidirectional=bidirectional,
+        #     )
             
-        elif model_type == "seft":
-            classifier = SeFTClassifier(
-                feature_size=feature_size,
-                n_state=n_state,
-                n_timesteps=n_timesteps,
-                hidden_size=hidden_size
-            )
+        # elif model_type == "seft":
+        #     classifier = SeFTClassifier(
+        #         feature_size=feature_size,
+        #         n_state=n_state,
+        #         n_timesteps=n_timesteps,
+        #         hidden_size=hidden_size
+        #     )
             
         elif model_type == "transformer":
             mimic_config = {

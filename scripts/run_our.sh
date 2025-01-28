@@ -34,7 +34,7 @@ do
                             --num_segments $num_segments \
                             --min_seg_len $min_seg_len \
                             --max_seg_len $max_seg_len \
-                            --output-file state_mimic3_${cv}_${top}_results.csv \
+                            --output-file state_mimic3_${cv}_${top}_results_fix.csv \
                             --device cuda:0 \
                             2>&1 &
                         wait_n

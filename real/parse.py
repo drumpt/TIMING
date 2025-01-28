@@ -6,7 +6,7 @@ from pathlib import Path
 
 model = "state"
 data = "mimic3"
-experiment_name = "_baseline_fix"
+experiment_name = ""
 
 # Define the base file name pattern
 file_pattern = "{model}_{data}_{cv}_{top}_results{experiment_name}.csv"
@@ -64,6 +64,11 @@ result = grouped.agg(
 for col in result.columns:
     if "Comprehensiveness" in col or "Sufficiency" in col:
         result[col] = result[col] * 100
+
+# for mimic, only when my code is wrong...
+for col in result.columns:
+    if "top" in col:
+        result[col] = result[col] / 2
 
 result = result.applymap(lambda x: f"{x:.3f}")
 

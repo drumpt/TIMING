@@ -211,6 +211,9 @@ class PAM(DataModule):
             self._mean = features.mean(dim=(0, 1), keepdim=True)
             self._std = features.std(dim=(0, 1), keepdim=True)
             
+        EPS = 1e-5
+        features = (features - self._mean) / (self._std + EPS)
+            
         print(features.shape)
         print(data.y.shape)
         print(th.ones_like(features).shape)

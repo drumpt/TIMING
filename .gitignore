@@ -1,10 +1,10 @@
 data/boiler/
 data/mimic3/
 data/epilepsy/
-data/freezer/
+data/FreezerRegularTrain/
 data/mimic3/
 data/PAM/
-data/wafer/
+data/Wafer/
 generator/
 *.csv
 plot/

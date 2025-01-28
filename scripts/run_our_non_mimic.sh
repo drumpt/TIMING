@@ -6,35 +6,38 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3)
+GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=4
+num_max_jobs=5
 
-for cv in 0 1 2 3 4
+data=PAM
+
+# for cv in 0 1 2 3 4
+for cv in 0
 do
-    for top in 50 100 150
+    for top in 0
     do
-        for num_segments in 30 40 50 60 70
+        for num_segments in 20 40 60 80 100
         do
-            for min_seg_len in 1 5 10
+            for min_seg_len in 1
             do
-                for max_seg_len in 48 36 24 12
+                for max_seg_len in 600
                 do
                     explainer_list="our"
                     for explainer in ${explainer_list}; do
                         CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
                             --model_type state \
                             --explainers $explainer \
-                            --data mimic3 \
+                            --data $data \
                             --fold $cv \
-                            --testbs 10 \
-                            --areas 0.2 \
+                            --testbs 30 \
+                            --areas 0.1 \
                             --top $top \
                             --num_segments $num_segments \
                             --min_seg_len $min_seg_len \
                             --max_seg_len $max_seg_len \
-                            --output-file state_mimic3_${cv}_${top}_results_reproduce.csv \
+                            --output-file state_${data}_${cv}_${top}_results_fix.csv \
                             --device cuda:0 \
                             2>&1 &
                         wait_n

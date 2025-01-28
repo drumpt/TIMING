@@ -60,7 +60,6 @@ eth_list = ["white", "black", "hispanic", "asian", "other"]
 
 EPS = 1e-5
 
-
 class Mimic3(DataModule):
     r"""
     MIMIC-III dataset.

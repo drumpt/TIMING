@@ -60,8 +60,9 @@ def cumulative_difference(
             baselines,
             draw_baseline_from_distrib=draw_baseline_from_distrib,
         )
-
-    num_steps = int(topk * inputs[0].numel()) if top == 0 else top
+        
+    num_steps = int(topk * inputs[0][0].numel()) if top == 0 else top
+    
     assert 0 < topk < 1 or top > 0, "topk must be a float between 0 and 1 or specify top > 0"
     if not largest:
         topk = 1.0 - topk
@@ -80,26 +81,15 @@ def cumulative_difference(
         batch_attributions = tuple(attr[start_idx:end_idx] for attr in attributions)
 
         # Get top-k indices for each batch
-        if top > 0:
-            topk_indices = tuple(
-                torch.topk(
-                    attr.reshape(len(attr), -1),
-                    top,
-                    sorted=True,
-                    largest=largest,
-                ).indices.to(attr.device)
-                for attr in batch_attributions
-            )
-        else:
-            topk_indices = tuple(
-                torch.topk(
-                    attr.reshape(len(attr), -1),
-                    int(attr.reshape(len(attr), -1).shape[-1] * topk),
-                    sorted=True,
-                    largest=largest,
-                ).indices.to(attr.device)
-                for attr in batch_attributions
-            )
+        topk_indices = tuple(
+            torch.topk(
+                attr.reshape(len(attr), -1),
+                num_steps,
+                sorted=True,
+                largest=largest,
+            ).indices.to(attr.device)
+            for attr in batch_attributions
+        )
 
         topk_indices = tuple(
             topk.to(input.device) for topk, input in zip(topk_indices, batch_inputs)
@@ -144,7 +134,7 @@ def cumulative_difference(
         prob_first = logits_first.softmax(-1)
 
         # Compute and store the first step difference
-        step_diff_first = torch.abs(prob_orig - prob_first).sum().item()
+        step_diff_first = torch.abs(prob_orig - prob_first).mean(dim=1).sum().item()
         cumulative_differences[0] += step_diff_first
         
         prob_before = prob_first
@@ -172,7 +162,7 @@ def cumulative_difference(
             prob_step = logits_step.softmax(-1)
 
             # Compute cumulative difference for the batch up to this step
-            step_diff = torch.abs(prob_before - prob_step).sum().item()
+            step_diff = torch.abs(prob_before - prob_step).mean(dim=1).sum().item()
             cumulative_differences[step] += step_diff
             
             prob_before = prob_step
@@ -193,4 +183,4 @@ def cumulative_difference(
     # print(mean_cumulative_differences)
     # print(np.cumsum(mean_cumulative_differences))
 
-    return sum(mean_cumulative_differences), aucc, sum(mean_cumulative_differences[:50])
+    return sum(mean_cumulative_differences), aucc, sum(mean_cumulative_differences[:50]), mean_cumulative_differences

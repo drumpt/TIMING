@@ -43,6 +43,10 @@ from tint.attr.models import (
 # from datasets.mimic3 import Mimic3
 from datasets.mimic3_zero import Mimic3
 from datasets.PAM import PAM
+from datasets.boiler import Boiler
+from datasets.epilepsy import Epilepsy
+from datasets.wafer import Wafer
+from datasets.freezer import Freezer
 from tint.metrics import (
     accuracy,
     comprehensiveness,
@@ -130,6 +134,79 @@ def main(
         num_features = 17
         num_classes = 8
         max_len = 600
+        
+    elif data == "boiler":
+        datamodule = Boiler(fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=20,
+            n_state=2,
+            n_timesteps=36,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+        num_features = 20
+        num_classes = 2
+        max_len = 36
+    
+    elif data == "epilepsy":
+        datamodule = Epilepsy(fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=1,
+            n_state=2,
+            n_timesteps=178,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+        num_features = 1
+        num_classes = 2
+        max_len = 178
+    
+    elif data == "freezer":
+        datamodule = Freezer(n_folds=5, fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=1,
+            n_state=2,
+            n_timesteps=152,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+        
+        num_features = 1
+        num_classes = 2
+        max_len = 152
+    
+    elif data == "wafer":
+        datamodule = Wafer(n_folds=5, fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=1,
+            n_state=2,
+            n_timesteps=301,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+        num_features = 1
+        num_classes = 2
+        max_len = 301
 
     # Create classifier
     # classifier = MimicClassifierNet(
@@ -194,7 +271,7 @@ def main(
     if model_type == "state":
         temporal_additional_forward_args = (False, False, False)
     else:
-        temporal_additional_forward_args = (True, True, False)
+        temporal_additional_forward_args = (False, False, False)
     
     data_mask=mask_test
     data_len, t_len, _ = x_test.shape
@@ -1814,23 +1891,16 @@ def main(
         for i, baselines in enumerate([x_avg, 0.0]):
             for topk in areas:
                 for k, v in attr.items():        
-                    if topk == 0.2:
-                        cum_diff, AUCC, cum_50_diff = cumulative_difference(
-                            classifier,
-                            x_test,
-                            attributions=v.cpu(),
-                            baselines=baselines,
-                            topk=0.0,
-                            top=args.top,
-                            testbs=testbs,
-                            additional_forward_args=(mask_test, timesteps, False),
-                        )
-                        
-                    else:
-                        cum_diff = 0.0
-                        AUCC = 0.0
-                        cum_50_diff = 0.0
-                    
+                    cum_diff, AUCC, cum_50_diff, _ = cumulative_difference(
+                        classifier,
+                        x_test,
+                        attributions=v.cpu(),
+                        baselines=baselines,
+                        topk=topk,
+                        top=args.top,
+                        testbs=testbs,
+                        additional_forward_args=(mask_test, timesteps, False),
+                    )
                     
                     
                     
@@ -1945,7 +2015,7 @@ def main(
     for key in attr.keys():
         result = attr[key]
         if isinstance(result, tuple): result = result[0]
-        np.save('./results_gate/{}_result_{}_{}.npy'.format(key, fold, seed), result.detach().cpu().numpy())
+        np.save('./results_gate/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, key, fold, seed), result.detach().cpu().numpy())
     
     print(f"{explainers} done")
 
