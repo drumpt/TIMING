@@ -207,6 +207,11 @@ class PAM(DataModule):
         
         features = data.X.transpose(0, 1)
         
+        # print(features.mean(dim=(0, 1), keepdim=True))
+        # print(features.std(dim=(0, 1), keepdim=True))
+        # print(data.time)
+        # raise RuntimeError
+        
         if split == "train":
             self._mean = features.mean(dim=(0, 1), keepdim=True)
             self._std = features.std(dim=(0, 1), keepdim=True)

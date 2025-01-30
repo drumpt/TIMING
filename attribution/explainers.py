@@ -115,97 +115,6 @@ class OUR:
     def __init__(self, model):
         self.model = model
 
-    def get_batch_masks(self, B, T, D, n_samples, num_segments, min_seg_len, max_seg_len, device):
-        # Generate all random numbers at once
-        dims = torch.randint(0, D, (n_samples, B, num_segments), device=device)
-        seg_lens = torch.randint(min_seg_len, max_seg_len+1, (n_samples, B, num_segments), device=device)
-        t_starts = torch.randint(0, T, (n_samples, B, num_segments), device=device)
-        
-        # Initialize mask
-        time_mask = torch.ones(n_samples, B, T, D, device=device)
-        
-        # Vectorized masking
-        batch_idx = torch.arange(B, device=device)
-        sample_idx = torch.arange(n_samples, device=device)
-        
-        for i, b, s in itertools.product(range(n_samples), range(B), range(num_segments)):
-            time_mask[i, b, t_starts[i,b,s]:t_starts[i,b,s]+seg_lens[i,b,s], dims[i,b,s]] = 0
-            
-        return time_mask
-
-    def attribute_ori_ig(
-        self, inputs, baselines, targets, additional_forward_args, n_samples=50
-    ):
-        """
-        Compute Integrated Gradients attributions for a time series model.
-        Args:
-            inputs (torch.Tensor): Input tensor [B, T, D]
-            baselines (torch.Tensor): Baseline tensor [B, T, D]
-            targets (torch.Tensor): Target tensor [B] (integer class targets)
-            additional_forward_args: tuple containing (mask, ...)
-            n_samples (int): Number of interpolation steps
-        """
-        if inputs.shape != baselines.shape:
-            raise ValueError("Inputs and baselines must have the same shape.")
-
-        # Get mask from additional_forward_args
-        mask = additional_forward_args[0]
-
-        # 1. Generate interpolation path
-        alphas = torch.linspace(0, 1, n_samples, device=inputs.device)
-        alphas = alphas.view(-1, 1, 1, 1)  # shape: [n_samples, 1, 1, 1]
-
-        # Expand inputs and baselines
-        expanded_inputs = inputs.unsqueeze(0)  # [1, B, T, D]
-        expanded_baselines = baselines.unsqueeze(0)  # [1, B, T, D]
-
-        # Interpolate between baseline and input
-        interpolated = expanded_baselines + alphas * (
-            expanded_inputs - expanded_baselines
-        )
-        interpolated.requires_grad = True
-
-        # 2. Forward pass
-        predictions = self.model(
-            interpolated.view(-1, inputs.shape[1], inputs.shape[2]),
-            mask=None,
-            timesteps=None,
-            return_all=additional_forward_args[2],
-        )
-
-        # Handle predictions shape
-        if predictions.dim() == 1:
-            predictions = predictions.unsqueeze(1)
-        predictions = predictions.view(n_samples, inputs.shape[0], -1)
-
-        # Gather predictions for target class
-        gathered = predictions.gather(
-            dim=2,
-            index=targets.unsqueeze(0)
-            .unsqueeze(-1)
-            .expand(n_samples, inputs.shape[0], 1),
-        ).squeeze(
-            -1
-        )  # shape [n_samples, B]
-
-        # Sum for gradient computation
-        total = gathered.sum()
-
-        # 3. Compute gradients
-        grad = torch.autograd.grad(
-            outputs=total, inputs=interpolated, retain_graph=True
-        )[
-            0
-        ]  # shape: [n_samples, B, T, D]
-
-        # Average gradients over interpolation steps
-        grads = grad.mean(dim=0)  # [B, T, D]
-
-        # 4. Compute final attributions
-        attributions = grads * (inputs - baselines)
-
-        return attributions
-
     def attribute_random(
         self, inputs, baselines, targets, additional_forward_args, n_samples=50, prob=0.3,
     ):
@@ -419,257 +328,197 @@ class OUR:
         final_attr = grads * (inputs - baselines) / time_mask.sum(dim=0)
             
         return final_attr
+    
+    def attribute_orig(
+        self,
+        inputs: torch.Tensor,  # [B, T, D]
+        baselines: torch.Tensor,  # [B, T, D]
+        targets: torch.Tensor,  # [B]
+        additional_forward_args,
+        n_samples: int = 50,
+        num_segments: int = 3,  # how many time segments (one dimension each) to fix per sample
+        max_seg_len: int = None,  # optional maximum length for each time segment
+        min_seg_len: int = None,
+        time_mask: torch.Tensor = None,
+    ):
+        """
+        Generates random contiguous time segments (each segment picks ONE random dimension).
+        BUT crucially, each sample i uses the SAME random segments for the *entire batch*.
 
-    # def attribute_random_time_segments_one_dim_same_for_batch_v2(
-    #     self,
-    #     inputs: torch.Tensor,  # [B, T, D]
-    #     baselines: torch.Tensor,  # [B, T, D]
-    #     targets: torch.Tensor,  # [B]
-    #     additional_forward_args,
-    #     n_samples: int = 50,
-    #     num_segments: int = 3,  # how many time segments (one dimension each) to fix per sample
-    #     max_seg_len: int = None,  # optional maximum length for each time segment
-    #     min_seg_len: int = None,
-    # ):
-    #     """
-    #     Generates random contiguous time segments (each segment picks ONE random dimension).
-    #     BUT crucially, each sample i uses the SAME random segments for the *entire batch*.
+        Steps:
+        1) Interpolate from baselines -> inputs using n_samples alpha steps
+        2) For each sample i (i.e. alpha step), create `num_segments` random slices
+            - each slice picks a single dimension, plus time range [t_start : t_end)
+            - fix that dimension/time range for ALL batch items
+        3) Forward pass & gather target logit => sum => compute gradients
+        4) Multiply by (inputs - baselines), optionally scale by how often (t,d) was free
+        """
+        if inputs.shape != baselines.shape:
+            raise ValueError("Inputs and baselines must have the same shape.")
 
-    #     Steps:
-    #     1) Interpolate from baselines -> inputs using n_samples alpha steps
-    #     2) For each sample i (i.e. alpha step), create `num_segments` random slices
-    #         - each slice picks a single dimension, plus time range [t_start : t_end)
-    #         - fix that dimension/time range for ALL batch items
-    #     3) Forward pass & gather target logit => sum => compute gradients
-    #     4) Multiply by (inputs - baselines), optionally scale by how often (t,d) was free
-    #     """
-    #     '''
-    #     # # if inputs.shape != baselines.shape:
-    #     # #     raise ValueError("Inputs and baselines must have the same shape.")
+        B, T, D = inputs.shape
+        device = inputs.device
 
-    #     # # B, T, D = inputs.shape
-    #     # # device = inputs.device
+        data_mask = additional_forward_args[0]
 
-    #     # # data_mask = additional_forward_args[0]
-
-    #     # # # -------------------------------------------------------
-    #     # # # 1) Build interpolation from baseline -> inputs
-    #     # # # -------------------------------------------------------
-    #     # # alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
+        # -------------------------------------------------------
+        # 1) Build interpolation from baseline -> inputs
+        # -------------------------------------------------------
+        alphas = torch.linspace(0, 1 - 1 / n_samples, n_samples, device=device).view(-1, 1, 1, 1)
         
-    #     # # expanded_inputs = inputs.unsqueeze(0)
-    #     # # expanded_baselines = baselines.unsqueeze(0)
-    #     # # # Interpolate with batch-specific alphas
-    #     # # noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
-    #     # # noise = torch.randn_like(noisy_inputs) * 1e-4
-    #     # # noisy_inputs = noisy_inputs + noise
+        expanded_inputs = inputs.unsqueeze(0)
+        expanded_baselines = baselines.unsqueeze(0)
+        # Interpolate with batch-specific alphas
+        noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
+        noise = torch.randn_like(noisy_inputs) * 1e-4
+        noisy_inputs = noisy_inputs + noise
         
-    #     # # if max_seg_len is None:
-    #     # #     max_seg_len = T
+        if max_seg_len is None:
+            max_seg_len = T
 
-    #     # # if min_seg_len is None:
-    #     # #     min_seg_len = 1
+        if min_seg_len is None:
+            min_seg_len = 1
 
-    #     # # # Generate batch-specific masks
-    #     # # dims = torch.randint(0, D, (n_samples, B, num_segments), device=device)
-    #     # # seg_lens = torch.randint(min_seg_len, max_seg_len+1, (n_samples, B, num_segments), device=device)
-    #     # # # t_starts = torch.randint(0, T-max_seg_len+1, (n_samples, B, num_segments), device=device)
-    #     # # t_starts = (torch.rand(n_samples, B, num_segments, device=device) * (T - seg_lens)).long()
+        # Combine masked inputs
+        fixed_inputs = expanded_inputs.detach()
+        masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        masked_inputs.requires_grad = True
 
-    #     # # # Initialize mask
-    #     # # time_mask = torch.ones_like(noisy_inputs)
+        # -------------------------------------------------------
+        # 3) Forward pass & gather target logits
+        # -------------------------------------------------------
+        predictions = self.model(
+            masked_inputs.view(-1, T, D),
+            mask=None,
+            timesteps=None,
+            return_all=additional_forward_args[2],
+        )
+        # Ensure shape => [n_samples, B, num_classes]
+        if predictions.dim() == 1:
+            predictions = predictions.unsqueeze(-1)
+        predictions = predictions.view(n_samples, B, -1)
 
-    #     # # # Create indices tensor
-    #     # # batch_indices = torch.arange(B, device=device)
-    #     # # sample_indices = torch.arange(n_samples, device=device)
+        # Gather only the target logit for each example
+        gathered = predictions.gather(
+            dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
+        ).squeeze(-1)
 
-    #     # # # Create mask via scatter
-    #     # # for s in range(num_segments):
-    #     # #     indices = t_starts[:,:,s].unsqueeze(-1) + torch.arange(seg_lens[:,:,s].max(), device=device).unsqueeze(0).unsqueeze(0)
-    #     # #     valid_indices = indices < T
-    #     # #     time_mask[sample_indices.view(-1,1,1), batch_indices.view(1,-1,1), indices * valid_indices, dims[:,:,s].unsqueeze(-1)] = 0
-
-    #     # if inputs.shape != baselines.shape:
-    #     #     raise ValueError("Inputs and baselines must have the same shape.")
-    #     # B, T, D = inputs.shape
-    #     # device = inputs.device
-    #     # # -------------------------------------------------------
-    #     # # 1) Build interpolation from baseline -> inputs
-    #     # # -------------------------------------------------------
-    #     # alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
-    #     # start_pos = baselines
-    #     # expanded_inputs = inputs.unsqueeze(0)    # shape [1, B, T, D]
-    #     # expanded_start  = start_pos.unsqueeze(0) # shape [1, B, T, D]
-    #     # # Interpolate
-    #     # noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
-    #     # noise = torch.randn_like(noisy_inputs) * 1e-4
-    #     # noisy_inputs = noisy_inputs + noise
-    #     # # # 1. Create a Beta distribution
-    #     # # beta_dist = Beta(0.5, 0.5)
-    #     # # # 2. Sample n_samples alphas from Beta distribution and move to device
-    #     # # #    alpha_i ~ Beta(alpha_param, beta_param)
-    #     # # alphas = beta_dist.sample((n_samples,)).to(device)
-    #     # # # 3. Sort the alphas in ascending order (optional but often desirable)
-    #     # # alphas = torch.sort(alphas).values
-    #     # # # 4. Reshape alphas to be broadcastable: [n_samples, 1, 1, 1]
-    #     # # #    so they can multiply [1, B, T, D] properly
-    #     # # alphas = alphas.view(-1, 1, 1, 1)
-    #     # # 5. Expand your inputs and baselines to [1, B, T, D]
-    #     # start_pos = baselines
-    #     # expanded_inputs = inputs.unsqueeze(0)     # [1, B, T, D]
-    #     # expanded_start  = start_pos.unsqueeze(0)  # [1, B, T, D]
-    #     # # 6. Interpolate between start_pos and inputs using alpha
-    #     # #    result shape: [n_samples, B, T, D]
-    #     # noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
-    #     # # 7. Optionally add a small random noise for numerical stability (or for exploration)
-    #     # noise = torch.randn_like(noisy_inputs) * 1e-4
-    #     # noisy_inputs = noisy_inputs + noise
-    #     # # -------------------------------------------------------
-    #     # # 2) Create a random mask for each sample i,
-    #     # #    apply it to all B in the batch
-    #     # # -------------------------------------------------------
-    #     # # time_mask: [n_samples, B, T, D],  1 => use interpolation, 0 => fix
-    #     # time_mask = torch.ones_like(noisy_inputs)  # [n_samples, B, T, D]
-    #     # if max_seg_len is None:
-    #     #     max_seg_len = T
-    #     # if min_seg_len is None:
-    #     #     min_seg_len = 1
-    #     # # For each sample i, we pick num_segments random (time-range, dimension).
-    #     # # We do NOT loop over b in [0..B-1]. Instead, we just set the same mask for all b.
-    #     # for b in range(B):
-    #     #     for i in range(n_samples):
-    #     #     # for i in range(1, n_samples-1):
-    #     #         for seg_id in range(num_segments):
-    #     #             dim_chosen = random.randint(0, D - 1)
-    #     #         # for dim_chosen in range(31):
-    #     #             seg_len = random.randint(min_seg_len, max_seg_len)
-    #     #             t_start = random.randint(0, T - seg_len)
-    #     #             t_end   = t_start + seg_len
-                    
-    #     #             time_mask[i, b, t_start:t_end, dim_chosen] = 0
-
-    #     # # Combine masked inputs
-    #     # fixed_inputs = expanded_inputs.detach()
-    #     # masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
-    #     # masked_inputs.requires_grad = True
-    #     '''
+        total_for_target = gathered.sum()
         
-    #     if inputs.shape != baselines.shape:
-    #         raise ValueError("Inputs and baselines must have the same shape.")
+        grad = torch.autograd.grad(outputs=total_for_target, inputs=masked_inputs, retain_graph=True)[0]
+        grad[time_mask == 0] = 0
 
-    #     B, T, D = inputs.shape
-    #     device = inputs.device
-
-    #     data_mask = additional_forward_args[0]
-
-    #     # -------------------------------------------------------
-    #     # 1) Build interpolation from baseline -> inputs
-    #     # -------------------------------------------------------
-    #     alphas = torch.linspace(0, 1, n_samples, device=device).view(-1, 1, 1, 1)
-        
-    #     expanded_inputs = inputs.unsqueeze(0)
-    #     expanded_baselines = baselines.unsqueeze(0)
-    #     # Interpolate with batch-specific alphas
-    #     noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
-    #     noise = torch.randn_like(noisy_inputs) * 1e-4
-    #     noisy_inputs = noisy_inputs + noise
-        
-    #     if max_seg_len is None:
-    #         max_seg_len = T
-
-    #     if min_seg_len is None:
-    #         min_seg_len = 1
-
-    #     # Generate batch-specific masks
-    #     dims = torch.randint(0, D, (n_samples, B, num_segments), device=device)
-    #     seg_lens = torch.randint(min_seg_len, max_seg_len+1, (n_samples, B, num_segments), device=device)
-    #     # t_starts = torch.randint(0, T-max_seg_len+1, (n_samples, B, num_segments), device=device)
-    #     t_starts = (torch.rand(n_samples, B, num_segments, device=device) * (T - seg_lens)).long()
-
-    #     # Initialize mask
-    #     time_mask = torch.ones_like(noisy_inputs)
-
-    #     # Create indices tensor
-    #     batch_indices = torch.arange(B, device=device)
-    #     sample_indices = torch.arange(n_samples, device=device)
-
-    #     # Create mask via scatter
-    #     for s in range(num_segments):
-    #         # indices = t_starts[:,:,s].unsqueeze(-1) + torch.arange(seg_lens[:,:,s].max(), device=device).unsqueeze(0).unsqueeze(0)
-    #         # valid_indices = indices < T
-    #         max_len = seg_lens[:,:,s].max()
-    #         # 2) base_range = [0, 1, 2, ..., max_len-1], shape [max_len]
-    #         base_range = torch.arange(max_len, device=device)
-    #         base_range = base_range.unsqueeze(0).unsqueeze(0)
+        grads = grad.sum(dim=0)  # Proper Riemann sum
+        final_attr = grads * (inputs - baselines)
             
-    #         indices = t_starts[:,:,s].unsqueeze(-1) + base_range
+        return final_attr
+    
+    def attribute_random_synthetic(
+        self,
+        inputs: torch.Tensor,  # [B, T, D]
+        baselines: torch.Tensor,  # [B, T, D]
+        targets: torch.Tensor,  # [B]
+        additional_forward_args,
+        n_samples: int = 50,
+        num_segments: int = 3,  # how many time segments (one dimension each) to fix per sample
+        max_seg_len: int = None,  # optional maximum length for each time segment
+        min_seg_len: int = None,
+    ):
+        if inputs.shape != baselines.shape:
+            raise ValueError("Inputs and baselines must have the same shape.")
 
-    #         end_points = t_starts[:,:,s] + seg_lens[:,:,s]  # shape [n_samples, B]
-    #         end_points = end_points.unsqueeze(-1)           # shape [n_samples, B, 1]
+        B, T, D = inputs.shape
+        device = inputs.device
 
-    #         valid_indices = (indices < end_points) & (indices < T)
-    #         time_mask[sample_indices.view(-1,1,1), batch_indices.view(1,-1,1), indices * valid_indices, dims[:,:,s].unsqueeze(-1)] = 0
+        data_mask = additional_forward_args[0]
 
-    #     # Combine masked inputs
-    #     fixed_inputs = expanded_inputs.detach()
-    #     masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
-    #     masked_inputs.requires_grad = True
-
-    #     # -------------------------------------------------------
-    #     # 3) Forward pass & gather target logits
-    #     # -------------------------------------------------------
-    #     predictions = self.model(
-    #         masked_inputs.view(-1, T, D),
-    #         mask=None,
-    #         timesteps=None,
-    #         return_all=additional_forward_args[2],
-    #     )
-    #     # Ensure shape => [n_samples, B, num_classes]
-    #     if predictions.dim() == 1:
-    #         predictions = predictions.unsqueeze(-1)
-    #     predictions = predictions.view(n_samples, B, -1)
-
-    #     # Gather only the target logit for each example
-    #     gathered = predictions.gather(
-    #         dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
-    #     ).squeeze(-1)
-
-    #     total_for_target = gathered.sum()
-
-    #     # -------------------------------------------------------
-    #     # 4) Compute gradients
-    #     # -------------------------------------------------------
-    #     grad = torch.autograd.grad(
-    #         outputs=total_for_target,
-    #         inputs=masked_inputs,
-    #         # inputs=noisy_inputs,
-    #         retain_graph=True,
-    #         allow_unused=True,
-    #     )[
-    #         0
-    #     ]  # shape => [n_samples, B, T, D]
-
-    #     # # Average over n_samples dimension
-    #     # grad[time_mask == 0] = 0
-    #     # grads = grad.sum(dim=0)  # shape => [B, T, D]
-
-    #     # # -------------------------------------------------------
-    #     # # 5) Compute final attributions
-    #     # # -------------------------------------------------------
-    #     # # Standard gradient * (inputs - baselines)
-    #     # raw_attr = grads * (inputs - baselines)
-
-    #     # # If you want to reduce attributions where positions
-    #     # # got masked out frequently, multiply by mask_avg:
-    #     # mask_avg = time_mask.sum(dim=0)  # shape => [B, T, D]
-
-    #     # final_attr = raw_attr / mask_avg
+        # -------------------------------------------------------
+        # 1) Build interpolation from baseline -> inputs
+        # -------------------------------------------------------
+        alphas = torch.linspace(0, 1 - 1 / n_samples, n_samples, device=device).view(-1, 1, 1, 1)
         
-    #     grad = torch.autograd.grad(outputs=total_for_target, inputs=masked_inputs, retain_graph=True)[0]
-    #     grad[time_mask == 0] = 0
-    #     # Integration following IG formula
-    #     alpha_diffs = alphas[1:] - alphas[:-1]
-    #     grads = (grad[:-1] * alpha_diffs).sum(dim=0)  # Proper Riemann sum
-    #     final_attr = grads * (inputs - baselines)
+        expanded_inputs = inputs.unsqueeze(0)
+        expanded_baselines = baselines.unsqueeze(0)
+        # Interpolate with batch-specific alphas
+        noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
+        noise = torch.randn_like(noisy_inputs) * 1e-4
+        noisy_inputs = noisy_inputs + noise
+        
+        if max_seg_len is None:
+            max_seg_len = T
 
-    #     return final_attr
+        if min_seg_len is None:
+            min_seg_len = 1
+
+        # Generate batch-specific masks
+        dims = torch.randint(0, D, (n_samples, B, num_segments), device=device)
+        seg_lens = torch.randint(min_seg_len, max_seg_len+1, (n_samples, B, num_segments), device=device)
+        
+        # t_starts = torch.randint(0, T-max_seg_len+1, (n_samples, B, num_segments), device=device)
+        t_starts = (torch.rand(n_samples, B, num_segments, device=device) * (T - seg_lens)).long()
+
+        # Initialize mask
+        time_mask = torch.ones_like(noisy_inputs)
+
+        # Create indices tensor
+        batch_indices = torch.arange(B, device=device)
+        sample_indices = torch.arange(n_samples, device=device)
+
+        # Create mask via scatter
+        for s in range(num_segments):
+            # indices = t_starts[:,:,s].unsqueeze(-1) + torch.arange(seg_lens[:,:,s].max(), device=device).unsqueeze(0).unsqueeze(0)
+            # valid_indices = indices < T
+            # print(seg_lens)
+            max_len = seg_lens[:,:,s].max()
+            # print(max_len)
+            # 2) base_range = [0, 1, 2, ..., max_len-1], shape [max_len]
+            base_range = torch.arange(max_len, device=device)
+            base_range = base_range.unsqueeze(0).unsqueeze(0)
+            
+            indices = t_starts[:,:,s].unsqueeze(-1) + base_range
+
+            end_points = t_starts[:,:,s] + seg_lens[:,:,s]  # shape [n_samples, B]
+            end_points = end_points.unsqueeze(-1)           # shape [n_samples, B, 1]
+
+            valid_indices = (indices < end_points) & (indices < T)
+            time_mask[sample_indices.view(-1,1,1), batch_indices.view(1,-1,1), indices * valid_indices, dims[:,:,s].unsqueeze(-1)] = 0
+
+        # Combine masked inputs
+        fixed_inputs = expanded_inputs.detach()
+        masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        masked_inputs.requires_grad = True
+
+        # -------------------------------------------------------
+        # 3) Forward pass & gather target logits
+        # -------------------------------------------------------
+        predictions = self.model(
+            masked_inputs.view(-1, T, D),
+            mask=None,
+            timesteps=None,
+            return_all=True
+        )
+        
+        # Ensure shape => [n_samples, B, num_classes]
+        if predictions.dim() == 1:
+            predictions = predictions.unsqueeze(-1)
+        predictions = predictions.view(n_samples, -1, 2)
+        
+        # print(predictions.shape)
+        # print(targets.shape)
+        # print(targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100 * B, 1).shape)
+        # raise RuntimeError
+
+        # Gather only the target logit for each example
+        gathered = predictions.gather(
+            dim=2, index=targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100*B, 1)
+        ).squeeze(-1)
+
+        total_for_target = gathered.sum()
+        
+        grad = torch.autograd.grad(outputs=total_for_target, inputs=masked_inputs, retain_graph=True)[0]
+        grad[time_mask == 0] = 0
+
+        grads = grad.sum(dim=0)  # Proper Riemann sum
+        final_attr = grads * (inputs - baselines) / (time_mask.sum(dim=0) + torch.finfo(torch.float16).eps)
+            
+        return final_attr

@@ -1,14 +1,17 @@
 import multiprocessing as mp
 import os
 from pytorch_lightning.callbacks import EarlyStopping
-
+from os import path
+from pathlib import Path
+import sys
+sys.path.append(path.dirname( path.dirname( path.dirname( path.abspath(__file__) ) )))
 
 from argparse import ArgumentParser
 from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import TensorBoardLogger
 from typing import List
-from utils.tools import print_results
+# from utils.tools import print_results
 from tint.attr import (
     DynaMask,
     ExtremalMask,
@@ -38,7 +41,7 @@ from tint.models import MLP, RNN
 from attribution.gatemasknn import *
 from attribution.gate_mask import GateMask
 from classifier import SpikeClassifierNet
-
+from real.cumulative_difference import cumulative_difference
 
 def main(
     explainers: List[str],
@@ -94,9 +97,9 @@ def main(
         trainer.fit(classifier, datamodule=switch)
         if not os.path.exists("./model/"):
             os.makedirs("./model/")
-        th.save(classifier.state_dict(), "./model/classifier_{}_{}".format(fold, seed))
+        th.save(classifier.state_dict(), "./model/switch_feature/classifier_{}_{}".format(fold, seed))
     else:
-        classifier.load_state_dict(th.load("./model/classifier_{}_{}".format(fold, seed)))
+        classifier.load_state_dict(th.load("./model/switch_feature/classifier_{}_{}".format(fold, seed)))
 
     # Get data for explainers
     with lock:
@@ -129,6 +132,7 @@ def main(
             x_test,
             baselines=x_test * 0,
             task="binary",
+            additional_forward_args=(None, None, True),
             show_progress=True,
         ).abs()
 
@@ -156,7 +160,7 @@ def main(
         explainer = DynaMask(classifier)
         _attr = explainer.attribute(
             x_test,
-            additional_forward_args=(True,),
+            additional_forward_args=(None, None, True),
             trainer=trainer,
             mask_net=mask,
             batch_size=100,
@@ -194,7 +198,7 @@ def main(
         explainer = ExtremalMask(classifier)
         _attr = explainer.attribute(
             x_test,
-            additional_forward_args=(True,),
+            additional_forward_args=(None, None, True),
             trainer=trainer,
             mask_net=mask,
             batch_size=100,
@@ -232,14 +236,14 @@ def main(
         explainer = GateMask(classifier)
         _attr = explainer.attribute(
             x_test,
-            additional_forward_args=(True,),
+            additional_forward_args=(None, None, True),
             trainer=trainer,
             mask_net=mask,
             batch_size=x_test.shape[0],
             sigma=0.8,
         )
         attr["gate_mask"] = _attr.to(device)
-        print_results(attr["gate_mask"], true_saliency)
+        # print_results(attr["gate_mask"], true_saliency)
 
     if "fit" in explainers:
         generator = JointFeatureGeneratorNet(rnn_hidden_size=6)
@@ -260,7 +264,9 @@ def main(
             features=x_test,
             trainer=trainer,
         )
-        attr["fit"] = explainer.attribute(x_test, show_progress=True)
+        attr["fit"] = explainer.attribute(x_test, 
+                                          additional_forward_args=(None, None, True),
+                                          show_progress=True)
 
     if "gradient_shap" in explainers:
         explainer = TimeForwardTunnel(GradientShap(classifier.cpu()))
@@ -269,42 +275,99 @@ def main(
             baselines=th.cat([x_test.cpu() * 0, x_test.cpu()]),
             n_samples=50,
             stdevs=0.0001,
+            additional_forward_args=(None, None, True),
             task="binary",
             show_progress=True,
         ).abs()
         classifier.to(device)
 
+    # if "integrated_gradients" in explainers:
+    #     explainer = TimeForwardTunnel(IntegratedGradients(classifier))
+    #     attr["integrated_gradients"] = explainer.attribute(
+    #         x_test,
+    #         baselines=x_test * 0,
+    #         internal_batch_size=200,
+    #         task="binary",
+    #         show_progress=True,
+    #     ).abs()
     if "integrated_gradients" in explainers:
-        explainer = TimeForwardTunnel(IntegratedGradients(classifier))
-        attr["integrated_gradients"] = explainer.attribute(
-            x_test,
-            baselines=x_test * 0,
-            internal_batch_size=200,
-            task="binary",
-            show_progress=True,
-        ).abs()
+        explainer = IntegratedGradients(classifier)
+        from captum._utils.common import _run_forward
+        with th.autograd.set_grad_enabled(False):
+            partial_targets = _run_forward(
+                classifier,
+                x_test,
+                additional_forward_args=(None, None, True),
+            )
+        partial_targets = th.argmax(partial_targets, -1)
+
+        # attr["integrated_gradients"] = explainer.attribute(
+        #     x_test, _load_txt_uea
+        #     baselines=x_test * 0,
+        #     target=partial_targets,
+        #     additional_forward_args=(True,),
+        #     # temporal_additional_forward_args=temporal_additional_forward_args,
+        #     # task="binary",
+        #     # show_progress=True,
+        # ).abs()
+        attr["integrated_gradients"] = th.zeros_like(x_test).to(device)
+        
+    if "our" in explainers:
+        from attribution.explainers import OUR
+        for num_segments in [1, 5, 10]:
+            for min_seg_len in [1, 10]:
+                for max_seg_len in [10, 100]:
+                    explainer = OUR(classifier)
+
+                    from captum._utils.common import _run_forward
+                    with th.autograd.set_grad_enabled(False):
+                        partial_targets = _run_forward(
+                            classifier,
+                            x_test,
+                            additional_forward_args=(None, None, True),
+                        )
+                    partial_targets = th.argmax(partial_targets, -1)
+
+                    # attr_batch = explainer.naive_attribute(
+                    attr_batch = explainer.attribute_random_synthetic(
+                        x_test,
+                        baselines=x_test * 0,
+                        targets=partial_targets,
+                        additional_forward_args=(None, None, True),
+                        n_samples=50,
+                        num_segments=num_segments,
+                        min_seg_len=min_seg_len,
+                        max_seg_len=max_seg_len,
+                    ).abs()
+                    # print(attr_batch)
+                    attr[f"our_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = attr_batch.to(device)
+
 
     if "lime" in explainers:
         explainer = TimeForwardTunnel(Lime(classifier))
         attr["lime"] = explainer.attribute(
             x_test,
             task="binary",
+            additional_forward_args=(None, None, False),
             show_progress=True,
-        ).abs()
+        ).abs().to(device)
 
     if "augmented_occlusion" in explainers:
         explainer = TimeForwardTunnel(
             TemporalAugmentedOcclusion(
-                classifier, data=x_train, n_sampling=10, is_temporal=True
+                classifier, data=x_train, n_sampling=10, 
+                additional_forward_args=(None, None, True),
+                is_temporal=True
             )
         )
         attr["augmented_occlusion"] = explainer.attribute(
             x_test,
             sliding_window_shapes=(1,),
             attributions_fn=abs,
+            additional_forward_args=(None, None, False),
             task="binary",
             show_progress=True,
-        ).abs()
+        ).abs().to(device)
 
     if "occlusion" in explainers:
         explainer = TimeForwardTunnel(TemporalOcclusion(classifier))
@@ -312,60 +375,46 @@ def main(
             x_test,
             sliding_window_shapes=(1,),
             baselines=x_train.mean(0, keepdim=True),
+            additional_forward_args=(None, None, False),
             attributions_fn=abs,
             task="binary",
             show_progress=True,
-        ).abs()
+        ).abs().to(device)
+        
+    x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
 
-    if "retain" in explainers:
-        retain = RetainNet(
-            dim_emb=128,
-            dropout_emb=0.4,
-            dim_alpha=8,
-            dim_beta=8,
-            dropout_context=0.4,
-            dim_output=2,
-            loss="cross_entropy",
-        )
-        explainer = Retain(
-            datamodule=switch,
-            retain=retain,
-            trainer=Trainer(
-                max_epochs=50,
-                accelerator=accelerator,
-                devices=device_id,
-                deterministic=deterministic,
-                logger=TensorBoardLogger(
-                    save_dir=".",
-                    version=random.getrandbits(128),
-                ),
-            ),
-        )
-        attr["retain"] = (
-            explainer.attribute(x_test, target=y_test).abs().to(device)
-        )
+    baselines_dict = {0: "Average", 1: "Zeros"}
 
     with open(output_file, "a") as fp, lock:
-        for k, v in attr.items():
-            fp.write(str(seed) + ",")
-            fp.write(str(fold) + ",")
-            fp.write(k + ",")
-            fp.write(str(lambda_1) + ",")
-            fp.write(str(lambda_2) + ",")
-            fp.write(f"{aup(v, true_saliency):.4},")
-            fp.write(f"{aur(v, true_saliency):.4},")
-            fp.write(f"{information(v, true_saliency):.4},")
-            fp.write(f"{entropy(v, true_saliency):.4},")
-            fp.write(f"{roc_auc(v, true_saliency):.4},")
-            fp.write(f"{auprc(v, true_saliency):.4}")
-            fp.write("\n")
+        for i, baselines in enumerate([x_avg, 0.0]):    
+            for k, v in attr.items():
+                cum_diff, AUCC, cum_50_diff, _ = cumulative_difference(
+                    classifier,
+                    x_test,
+                    attributions=v.cpu(),
+                    baselines=baselines,
+                    topk=0.1,
+                    top=0,
+                    testbs=x_test.shape[0],
+                    additional_forward_args=(None, None, True),
+                )
+                fp.write(str(seed) + ",")
+                fp.write(str(fold) + ",")
+                fp.write(baselines_dict[i] + ",")
+                fp.write(k + ",")
+                fp.write(str(lambda_1) + ",")
+                fp.write(str(lambda_2) + ",")
+                fp.write(f"{cum_50_diff:.4},")
+                fp.write(f"{cum_diff:.4},")
+                fp.write(f"{AUCC:.4},")
+                fp.write(f"{aup(v, true_saliency):.4},")
+                fp.write(f"{aur(v, true_saliency):.4},")
+                fp.write(f"{information(v, true_saliency):.4},")
+                fp.write(f"{entropy(v, true_saliency):.4},")
+                fp.write(f"{roc_auc(v, true_saliency):.4},")
+                fp.write(f"{auprc(v, true_saliency):.4}")
+                fp.write("\n")
 
-    # if not os.path.exists("./results/"):
-    #     os.makedirs("./results/")
-    # for key in attr.keys():
-    #     result = attr[key]
-    #     np.save('./results/{}_result_{}_{}.npy'.format(key, fold, seed), result.detach().numpy())
-    #
 
 def parse_args():
     parser = ArgumentParser()
@@ -380,10 +429,11 @@ def parse_args():
             "deep_lift",
             "lime",
             "fit",
-            "retain",
+            # "retain",
             "dyna_mask",
             "extremal_mask",  # tensor(13723.2715, grad_fn=<SumBackward0>) tensor(0.2366, grad_fn=<MeanBackward0>)
             "gate_mask",# tensor(14289.1562) tensor(0.4865, grad_fn=<MeanBackward0>) tensor(0.0310, gra>) 1.1 1 tensor(0.1030, grad_fn=<MseLossBackward0>)
+            # "our"
         ],
         nargs="+",
         metavar="N",
@@ -454,6 +504,6 @@ if __name__ == "__main__":
     )
 
 
-    #
-    from utils.tools import process_results_by_file
-    process_results_by_file(5, args.explainers)
+    # #
+    # from utils.tools import process_results_by_file
+    # process_results_by_file(5, args.explainers)

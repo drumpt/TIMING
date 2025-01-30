@@ -748,8 +748,8 @@ class Mimic3(DataModule):
             masks = th.cat([masks[..., :20], masks[..., 23:]], dim=-1)
         # Compute mean and std on only observed values
         if split == "train":
-            # Create mask for valid values (where masks == 0)
-            valid_mask = (masks == 0)
+            # Create mask for valid values (where masks == 1)
+            valid_mask = (masks == 1)
             # Count valid entries per feature
             valid_counts = valid_mask.sum(dim=(0, 1), keepdim=True)
             # Compute sum of valid entries
@@ -762,20 +762,26 @@ class Mimic3(DataModule):
             self._std = th.sqrt(valid_var_sum / (valid_counts - 1 + EPS))
         else:
             assert split == "test", "split must be train or test"
-        assert self._mean is not None, "You must call preprocess('train') first"
+            assert self._mean is not None, "You must call preprocess('train') first"
         # Normalize only observed values and zeroize missing values
         normalized_features = features.clone()
-        valid_mask = (masks == 0)
-        normalized_features[valid_mask] = ((features[valid_mask] - self._mean.expand_as(features)[valid_mask]) /
-                                        (self._std.expand_as(features)[valid_mask] + EPS))
+        valid_mask = (masks == 1)  # Changed from 0 to 1
+        normalized_features[valid_mask] = (
+            (features[valid_mask] - self._mean.expand_as(features)[valid_mask]) /
+            (self._std.expand_as(features)[valid_mask] + EPS)
+        )
         normalized_features[~valid_mask] = 0.0
-        
+        print(f"{normalized_features.shape=}")
+        print(f"{labels.long().shape=}")
+        # if split == 'test':
+        #     print(sum(sum(sum(~valid_mask))) / sum(sum(sum(th.ones_like(valid_mask)))))
+        #     raise RuntimeError
+        #     # 61.08%
         return {
             "x": normalized_features.float(),
             "y": labels.long() if self.task == "mortality" else labels.float(),
             "mask": masks
         }
-
 
 def quantize_signal(
     signal, start, step_size, n_steps, value_column, charttime_column

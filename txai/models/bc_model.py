@@ -185,6 +185,7 @@ class TimeXModel(nn.Module):
 
         # if self.ablation_parameters.label_based_on_mask:
         #     pred_mask = self.z_e_predictor(z_mask) # Make prediction on masked input
+
         src_distr = self.src_distribution(src.transpose(0, 1).reshape(-1, self.max_len*self.d_inp))
 
         mask_src_distr = self.mask_src_distribution(

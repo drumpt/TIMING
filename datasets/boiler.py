@@ -84,9 +84,9 @@ class Boiler(DataModule):
     
         features = data[0].transpose(0, 1)
         
-        print(features.shape)
-        print(data[2].shape)
-        print(th.ones_like(features).shape)
+        # print(features.shape)
+        # print(data[2].shape)
+        # print(th.ones_like(features).shape)
         
         if split == "train":
             self._mean = features.mean(dim=(0, 1), keepdim=True)

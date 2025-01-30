@@ -6,7 +6,7 @@ from pathlib import Path
 
 model = "state"
 data = "mimic3"
-experiment_name = ""
+experiment_name = "_final"
 
 # Define the base file name pattern
 file_pattern = "{model}_{data}_{cv}_{top}_results{experiment_name}.csv"
@@ -39,6 +39,8 @@ grouped = combined_df.groupby(["Baseline", "Topk", "Explainer"])
 
 # Define a function to calculate standard error
 def standard_error(x):
+    if len(x) != 5:
+        print(x)
     return np.std(x, ddof=1) / np.sqrt(len(x))
 
 # Calculate mean and standard error across the CV folds

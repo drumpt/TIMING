@@ -178,25 +178,6 @@ def main(
         classifier = MimicClassifierNet(
             feature_size=1,
             n_state=2,
-            n_timesteps=152,
-            hidden_size=200,
-            regres=True,
-            loss="cross_entropy",
-            lr=0.0001,
-            l2=1e-3,
-            model_type=model_type
-        )
-        
-        num_features = 1
-        num_classes = 2
-        max_len = 152
-    
-    elif data == "wafer":
-        datamodule = Wafer(n_folds=5, fold=fold, seed=seed)
-        
-        classifier = MimicClassifierNet(
-            feature_size=1,
-            n_state=2,
             n_timesteps=301,
             hidden_size=200,
             regres=True,
@@ -205,9 +186,28 @@ def main(
             l2=1e-3,
             model_type=model_type
         )
+        
         num_features = 1
         num_classes = 2
         max_len = 301
+    
+    elif data == "wafer":
+        datamodule = Wafer(n_folds=5, fold=fold, seed=seed)
+        
+        classifier = MimicClassifierNet(
+            feature_size=1,
+            n_state=2,
+            n_timesteps=152,
+            hidden_size=200,
+            regres=True,
+            loss="cross_entropy",
+            lr=0.0001,
+            l2=1e-3,
+            model_type=model_type
+        )
+        num_features = 1
+        num_classes = 2
+        max_len = 152
 
     # Create classifier
     # classifier = MimicClassifierNet(
@@ -1752,7 +1752,7 @@ def main(
 
             our_results.append(attr_batch.detach().cpu())
 
-    if "our_original_ig" in explainers:
+    if "our_orig" in explainers:
         from attribution.explainers import OUR
 
         explainer = OUR(classifier.predict)
@@ -1766,7 +1766,10 @@ def main(
             timesteps = timesteps[:batch_size, :]
 
             from captum._utils.common import _run_forward
-
+            
+            
+            attr_batch = th.zeros_like(x_batch)
+            
             with th.autograd.set_grad_enabled(False):
                 partial_targets = _run_forward(
                     classifier,
@@ -1774,113 +1777,53 @@ def main(
                     additional_forward_args=(data_mask, timesteps, False),
                 )
             partial_targets = th.argmax(partial_targets, -1)
+            B, T, D = x_batch.shape
+            
+            all_time_mask = th.zeros(50, B, T, D).to(x_batch.device)
+            for i in range(10):
+                
+                dims = th.randint(0, D, (B, num_segments), device=device)
+                seg_lens = th.randint(min_seg_len, max_seg_len+1, (B, num_segments), device=device)
+        
+                t_starts = (th.rand(B, num_segments, device=device) * (T - seg_lens)).long()
+                time_mask = th.ones_like(x_batch)
+                batch_indices = th.arange(B, device=device)
 
-            # attr_batch = explainer.naive_attribute(
-            attr_batch = explainer.attribute_ori_ig(
-                x_batch,
-                baselines=x_batch * 0,
-                targets=partial_targets * 0,
-                additional_forward_args=(data_mask, timesteps, False),
-                n_samples=50,
-            ).abs()
-            # attr_batch = (
-            #     explainer.attribute_random_time_segments_one_dim_same_for_batch(
-            #         x_batch,
-            #         baselines=x_batch * 0,
-            #         targets=partial_targets,
-            #         additional_forward_args=(data_mask, timesteps, False),
-            #         n_samples=50,
-            #         num_segments=30,
-            #     ).abs()
-            # )
+                for s in range(num_segments):
+
+                    max_len = seg_lens[:,s].max()
+
+                    base_range = th.arange(max_len, device=device)
+                    base_range = base_range.unsqueeze(0)
+                    
+                    indices = t_starts[:,s].unsqueeze(-1) + base_range
+
+                    end_points = t_starts[:,s] + seg_lens[:,s]  # shape [B]
+                    end_points = end_points.unsqueeze(-1)           # shape [B, 1]
+
+                    valid_indices = (indices < end_points) & (indices < T)
+                    time_mask[batch_indices.view(1,-1,1), indices * valid_indices, dims[:,s].unsqueeze(-1)] = 0
+
+                attr_batch += explainer.attribute_orig(
+                    x_batch,
+                    baselines=x_batch * 0,
+                    targets=partial_targets,
+                    additional_forward_args=(data_mask, timesteps, False),
+                    n_samples=50,
+                    num_segments=num_segments,
+                    min_seg_len=min_seg_len,
+                    max_seg_len=max_seg_len,
+                    time_mask=time_mask.unsqueeze(0).repeat(50, 1, 1, 1),
+                ).abs()
+                
+                all_time_mask[i] = time_mask
+            attr_batch = attr_batch /all_time_mask.sum(dim=0)
 
             our_results.append(attr_batch.detach().cpu())
 
-        # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
-        attr["original_ig"] = th.cat(our_results, dim=0)
+        attr[f"timing_original_10_sample50_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = th.cat(our_results, dim=0)
+
     
-    # if "our" in explainers:
-    #     from attribution.explainers import OUR
-        
-    #     explainer = OUR(classifier.predict)
-        
-    #     our_results = []
-        
-    #     for batch in test_loader:
-    #         x_batch = batch[0].to(device)
-    #         data_mask = batch[1].to(device)
-    #         batch_size = x_batch.shape[0]
-    #         timesteps = timesteps[:batch_size, :]
-            
-    #         from captum._utils.common import _run_forward
-    #         with th.autograd.set_grad_enabled(False):
-    #             partial_targets = _run_forward(
-    #                 classifier,
-    #                 x_batch,
-    #                 additional_forward_args=(data_mask, timesteps, False),
-    #             )
-    #         partial_targets = th.argmax(partial_targets, -1)
-            
-    #         # attr_batch = explainer.naive_attribute(
-    #         attr_batch = explainer.attribute_random_time_segments_one_dim_same_for_batch(
-    #             x_batch, 
-    #             baselines=x_batch * 0,
-    #             targets=partial_targets,
-    #             additional_forward_args=(data_mask, timesteps, False),
-    #             n_samples=50,
-    #             num_segments=100,
-    #             min_seg_len=100,
-    #             # max_seg_len=40,
-    #         ).abs()
-            
-    #         our_results.append(attr_batch.detach().cpu())
-            
-    #     # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
-    #     attr["timeig_sample50_seg100_min100"] = th.cat(our_results, dim=0)
-    #     # attr["naive_ig_beta"] = th.cat(our_results, dim=0)
-
-    # if "our_time" in explainers:
-    #     from attribution.explainers import OUR
-        
-    #     explainer = OUR(classifier.predict)
-
-    #     our_results = []
-        
-    #     for batch in test_loader:
-    #         x_batch = batch[0].to(device)
-    #         data_mask = batch[1].to(device)
-    #         batch_size = x_batch.shape[0]
-    #         timesteps = timesteps[:batch_size, :]
-            
-    #         from captum._utils.common import _run_forward
-    #         with th.autograd.set_grad_enabled(False):
-    #             partial_targets = _run_forward(
-    #                 classifier,
-    #                 x_batch,
-    #                 additional_forward_args=(data_mask, timesteps, False),
-    #             )
-    #         partial_targets = th.argmax(partial_targets, -1)
-            
-    #         # attr_batch = explainer.naive_attribute(
-    #         attr_batch = explainer.attribute_random_dim_segments_one_time_same_for_batch(
-    #             x_batch, 
-    #             baselines=x_batch * 0,
-    #             targets=partial_targets,
-    #             additional_forward_args=(data_mask, timesteps, False),
-    #             n_samples=50,
-    #             num_segments=1,
-    #             min_seg_len=5,
-    #             max_seg_len=10,
-    #         ).abs()
-            
-    #         our_results.append(attr_batch.detach().cpu())
-            
-    #     # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
-    #     attr["timeig_time_sample50_seg1_min10_max10"] = th.cat(our_results, dim=0)
-
-    # # Classifier and x_test to cpu
-    ## classifier.to("cpu")
-    ## x_test = x_test.to("cpu")
 
     # Compute x_avg for the baseline
     x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
@@ -2135,7 +2078,7 @@ def parse_args():
         "--model_type",
         type=str,
         default="state",
-        choices=["state", "mtand", "seft", "transformer"],
+        choices=["state", "mtand", "seft", "transformer", "cnn"],
     )
     parser.add_argument(
         "--testbs",

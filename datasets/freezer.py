@@ -64,16 +64,14 @@ class Freezer(DataModule):
         if split == "train":
             features = th.Tensor(X_train)
             y = th.Tensor(y_train)
+            self._mean = features.mean(dim=(0, 1), keepdim=True)
+            self._std = features.std(dim=(0, 1), keepdim=True)
         elif split == "test":
             features = th.Tensor(X_test)
             y = th.Tensor(y_test)
         else:
             raise RuntimeError
-        
-        if split == "train":
-            self._mean = features.mean(dim=(0, 1), keepdim=True)
-            self._std = features.std(dim=(0, 1), keepdim=True)
-        
+     
         EPS = 1e-5
         features = (features - self._mean) / (self._std + EPS)
         

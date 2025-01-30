@@ -6,16 +6,16 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4)
+GPUS=(0 1 2)
 NUM_GPUS=${#GPUS[@]}
-i=0
-num_max_jobs=5
+i=2
+num_max_jobs=3
 
 for cv in 0 1 2 3 4
 do
     for top in 100
     do
-        for prob in 0.1 0.3 0.5 0.7 0.9
+        for prob in 0.3 0.5 0.7 
         do
             explainer_list="our_random"
             for explainer in ${explainer_list}; do
@@ -28,7 +28,7 @@ do
                     --areas 0.2 \
                     --top $top \
                     --prob $prob \
-                    --output-file state_mimic3_${cv}_${top}_results_random.csv \
+                    --output-file state_mimic3_${cv}_${top}_results_final.csv \
                     --device cuda:0 \
                     2>&1 &
                 wait_n

@@ -64,7 +64,7 @@ i=0
 num_max_jobs=5
 
 # boiler epilepsy
-for data in mimic3
+for data in freezer wafer
 do
     for cv in 0 1 2 3 4
     do
@@ -80,6 +80,7 @@ do
         i=$((i + 1))
     done
 done
+
 # python mortality/main.py \
 #     --model_type seft \
 #     --train True \

@@ -46,7 +46,7 @@ class SpikeClassifier(nn.Module):
             nn.Linear(self.hidden_size, self.n_state),
         )
 
-    def forward(self, x, return_all: bool = False):
+    def forward(self, x, mask=None, timesteps=None, return_all: bool = False):
         if self.rnn_type == "GRU":
             all_encodings, encoding = self.rnn(x)
         else:

@@ -26,6 +26,7 @@ class CNN(nn.Module):
         # Input x shape: (B, T, F)
         # Need to convert to: (B, F, T) for Conv1d
         x = x.transpose(1, 2)  # (B, F, T)
+
         if x.shape[-1] < 8:
             # pad sequence to at least 8 so two max pools don't fail
             # necessary for when WinIT uses a small window
@@ -38,6 +39,7 @@ class CNN(nn.Module):
         out = self.mlp(embedding)  # (B, n_classes)
         if show_sizes:
             print(f"{out.shape=}")
+
         if get_embedding:
             return out, embedding
         else:

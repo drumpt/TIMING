@@ -7,6 +7,7 @@ from typing import Callable, Union
 from synthetic.hmm.classifier import StateClassifier
 # from models.set import mTANDClassifier, SeFTClassifier
 from models.transformer import TransformerClassifier
+from models.cnn import CNN
 
 from tint.models import Net
 
@@ -28,7 +29,8 @@ class MimicClassifierNet(Net):
         lr_scheduler: Union[dict, str] = None,
         lr_scheduler_args: dict = None,
         l2: float = 0.0,
-        model_type: str = "state"
+        model_type: str = "state",
+        pam: bool = False,
     ):
         self.multiclass = (n_state > 2)
         if model_type == "state":
@@ -76,7 +78,30 @@ class MimicClassifierNet(Net):
                 'n_classes': n_state,
                 'static': False,
             }
+            
+            if pam:
+                mimic_config = {
+                    'd_inp': feature_size,
+                    'd_model': 36,
+                    'nhead': 1,
+                    'nhid': 2 * 36,
+                    'nlayers': 1,
+                    'enc_dropout': 0.3,
+                    'max_len': 600,
+                    'd_static': 0,
+                    'MAX': 100,
+                    'aggreg': 'mean',
+                    'n_classes': n_state,
+                    'perc': 0.5,
+                    'static': False,
+                }
+                          
             classifier = TransformerClassifier(**mimic_config)
+            
+        elif model_type == "cnn":
+            classifier = CNN(d_inp=feature_size, 
+                             n_classes=n_state, 
+                             dim=128)
 
         super().__init__(
             layers=classifier,

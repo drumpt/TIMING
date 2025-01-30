@@ -37,6 +37,8 @@ class PositionalEncodingTF(nn.Module):
     def forward(self, P_time):
         pe = self.getPE(P_time)
         #pe = pe.to(device)
+        print(pe)
+        raise RuntimeError
         return pe
 
 class TransformerClassifier(nn.Module):
@@ -263,7 +265,8 @@ class TransformerClassifier(nn.Module):
         # mask is (B*n_heads,T,T) - if None has no effect
         if x.isnan().sum() > 0:
             print('before enc', x.isnan().sum())
-
+        print(x.shape)
+        raise RuntimeError
         output_preagg, attn = self.transformer_encoder(x, src_key_padding_mask = src_mask, mask = attn_mask)
 
         if show_sizes:

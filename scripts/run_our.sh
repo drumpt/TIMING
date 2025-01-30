@@ -11,13 +11,13 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=5
 
-for cv in 0 1 2 3 4 
+for cv in 0
 do
     for top in 100
     do
-        for num_segments in 70
+        for num_segments in 50
         do
-            for min_seg_len in 1
+            for min_seg_len in 10
             do
                 for max_seg_len in 48
                 do
@@ -34,7 +34,7 @@ do
                             --num_segments $num_segments \
                             --min_seg_len $min_seg_len \
                             --max_seg_len $max_seg_len \
-                            --output-file state_mimic3_${cv}_${top}_results_fix.csv \
+                            --output-file state_mimic3_${cv}_${top}_results_final.csv \
                             --device cuda:0 \
                             2>&1 &
                         wait_n

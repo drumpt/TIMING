@@ -5,10 +5,12 @@ data/FreezerRegularTrain/
 data/mimic3/
 data/PAM/
 data/Wafer/
-generator/
+generator/mimic3/
 *.csv
 plot/
 results_gate/
+results_pred/
+results_pred_avg/
 model/
 lightning_logs/
 model_zero/
