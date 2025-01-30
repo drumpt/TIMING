@@ -10,6 +10,7 @@ generator/mimic3/
 plot/
 results_gate/
 results_pred/
+results_mimic/
 results_pred_avg/
 model/
 lightning_logs/

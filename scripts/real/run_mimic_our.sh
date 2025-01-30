@@ -6,22 +6,22 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3)
+GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=4
+num_max_jobs=5
 
-model_list="transformer cnn"
+model_list="state transformer cnn"
 for model in ${model_list}; do
     for cv in 0 1 2 3 4
     do
         for top in 100
-        do 
-            for num_segments in 10 50 100
+        do
+            for num_segments in 50
             do
-                for min_seg_len in 1 10
+                for min_seg_len in 10
                 do
-                    for max_seg_len in 48 10
+                    for max_seg_len in 48
                     do
                         explainer_list="our"
                         for explainer in ${explainer_list}; do

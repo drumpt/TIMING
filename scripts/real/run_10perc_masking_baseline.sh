@@ -6,51 +6,28 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3)
+GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=4
+num_max_jobs=5
 
-model_list="cnn"
-for model in ${model_list}; do
-    explainer_list="gradientshap_abs integrated_gradients_base_abs"
-    # explainer_list="gradientshap_abs"
+data_list="wafer freezer boiler mimic3 epilepsy PAM"
+for data in ${data_list}; do
+    explainer_list="timex++"
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4
         do
-            for top in 100
+            for top in 0
             do
                 CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                    --model_type $model \
+                    --model_type state \
                     --explainers $explainer \
-                    --data mimic3 \
+                    --data $data \
                     --fold $cv \
-                    --testbs 10 \
-                    --areas 0.2 \
+                    --testbs 50 \
+                    --areas 0.1 \
                     --top $top \
-                    --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
-                    --device cuda:0 \
-                    2>&1 &
-                wait_n
-                i=$((i + 1))
-            done
-        done
-    done
-    explainer_list="dyna_mask"
-    for explainer in ${explainer_list}; do
-        for cv in 0 1 2 3 4
-        do
-            for top in 100
-            do
-                CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                    --model_type $model \
-                    --explainers $explainer \
-                    --data mimic3 \
-                    --fold $cv \
-                    --testbs 10 \
-                    --areas 0.2 \
-                    --top $top \
-                    --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
+                    --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                     --device cuda:0 \
                     2>&1 &
                 wait_n
@@ -63,7 +40,7 @@ for model in ${model_list}; do
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4
         do
-            for top in 100
+            for top in 0
             do
                 for mask_lr in 0.1
                 do
@@ -72,17 +49,17 @@ for model in ${model_list}; do
                         for lambda_2 in 0.01
                         do
                             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                                --model_type $model \
+                                --model_type state \
                                 --explainers $explainer \
-                                --data mimic3 \
+                                --data $data \
                                 --fold $cv \
                                 --testbs 10 \
-                                --areas 0.2 \
+                                --areas 0.1 \
                                 --lambda-1 $lambda_1 \
                                 --lambda-2 $lambda_2 \
                                 --mask_lr $mask_lr \
                                 --top $top \
-                                --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
+                                --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
                                 2>&1 &
                             wait_n
@@ -98,7 +75,7 @@ for model in ${model_list}; do
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4
         do
-            for top in 100
+            for top in 0
             do
                 for mask_lr in 0.01
                 do
@@ -107,17 +84,17 @@ for model in ${model_list}; do
                         for lambda_2 in 10
                         do
                             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                                --model_type $model \
+                                --model_type state \
                                 --explainers $explainer \
-                                --data mimic3 \
+                                --data $data \
                                 --fold $cv \
                                 --testbs 10 \
-                                --areas 0.2 \
+                                --areas 0.1 \
                                 --lambda-1 $lambda_1 \
                                 --lambda-2 $lambda_2 \
                                 --mask_lr $mask_lr \
                                 --top $top \
-                                --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
+                                --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
                                 2>&1 &
                             wait_n
@@ -130,22 +107,21 @@ for model in ${model_list}; do
     done
 
 
-    explainer_list="augmented_occlusion"
-    # explainer_list="lime"
+    explainer_list="augmented_occlusion integrated_gradients_base_abs gradientshap_abs"
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4
         do
-            for top in 100
+            for top in 0
             do
                 CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                    --model_type $model \
+                    --model_type state \
                     --explainers $explainer \
-                    --data mimic3 \
+                    --data $data \
                     --fold $cv \
                     --testbs 10 \
-                    --areas 0.2 \
+                    --areas 0.1 \
                     --top $top \
-                    --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
+                    --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                     --device cuda:0 \
                     2>&1 &
                 wait_n

@@ -5,7 +5,6 @@ from torchmetrics import Accuracy, Precision, Recall, AUROC, F1Score
 from typing import Callable, Union
 
 from synthetic.hmm.classifier import StateClassifier
-# from models.set import mTANDClassifier, SeFTClassifier
 from models.transformer import TransformerClassifier
 from models.cnn import CNN
 
@@ -128,6 +127,8 @@ class MimicClassifierNet(Net):
 
     def forward(self, *args, **kwargs) -> th.Tensor:
         return self.net(*args, **kwargs)
+    
+        # when execute deeplift, self.net(*args, **kwargs).softmax(-1)
 
     def step(self, batch, batch_idx, stage):
         x, y, mask = batch

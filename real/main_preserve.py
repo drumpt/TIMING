@@ -299,7 +299,7 @@ def main(
     for key in attr.keys():
         result = attr[key]
         if isinstance(result, tuple): result = result[0]
-        attr[key] = th.Tensor(np.load('./results_gate/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, key, fold, seed))).to(device)
+        attr[key] = th.Tensor(np.load('./results_our/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, key, fold, seed))).to(device)
 
     x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
 

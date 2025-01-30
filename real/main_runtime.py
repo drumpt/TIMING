@@ -598,36 +598,6 @@ def main(
             show_progress=True,
         ).abs()
         one_batch_time = time.time() - start
-        
-    # if "lime_abs" in explainers:
-    #     explainer = Lime(classifier.predict)
-    #     lime = []
-
-    #     for batch in test_loader:
-    #         x_batch = batch[0].to(device)
-    #         data_mask = batch[1].to(device)
-    #         batch_size = x_batch.shape[0]
-    #         timesteps = timesteps[:batch_size, :]
-            
-    #         from captum._utils.common import _run_forward
-    #         with th.autograd.set_grad_enabled(False):
-    #             partial_targets = _run_forward(
-    #                 classifier,
-    #                 x_batch,
-    #                 additional_forward_args=(data_mask, timesteps, False),
-    #             )
-    #         partial_targets = th.argmax(partial_targets, -1)
-
-    #         attr_batch = explainer.attribute(
-    #             x_batch,
-    #             target=partial_targets,
-    #             additional_forward_args=(data_mask, timesteps, False),
-    #         ).abs()
-        
-    #         lime.append(attr_batch.cpu())
-        
-    #     attr["lime_abs"] = th.cat(lime, dim=0)
-
 
     if "augmented_occlusion" in explainers:
         explainer = TimeForwardTunnel(
@@ -910,25 +880,11 @@ def main(
         for i, baselines in enumerate([x_avg, 0.0]):
             for topk in areas:
                 for k, v in attr.items():        
-                    # cum_diff, _, cum_50_diff, _ = cumulative_difference(
-                    #     classifier,
-                    #     x_test,
-                    #     attributions=v.cpu(),
-                    #     baselines=baselines,
-                    #     topk=topk,
-                    #     top=args.top,
-                    #     testbs=testbs,
-                    #     additional_forward_args=(mask_test, timesteps, False),
-                    # )
-                    
-
                     fp.write(str(seed) + ",")
                     fp.write(str(fold) + ",")
                     fp.write(baselines_dict[i] + ",")
                     fp.write(str(topk) + ",")
                     fp.write(k + ",")
-                    # fp.write(f"{cum_50_diff:.4},")
-                    # fp.write(f"{cum_diff:.4},")
                     fp.write(f"{one_batch_time:.4}")
                     fp.write("\n")
 
