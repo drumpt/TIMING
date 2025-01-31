@@ -113,12 +113,18 @@ class StateClassifierNet(Net):
 
     def step(self, batch, batch_idx, stage):
         t = th.randint(batch[1].shape[-1], (1,)).item()
-        x, y, mask = batch
+        # x, y, mask = batch
+        x, y = batch
+        mask=None
+        
         x = x[:, : t + 1]
         y = y[:, t]
         if mask is not None:
             mask = mask[:, : t+1]
-        y_hat = self(x, mask=mask)
+            y_hat = self(x, mask=mask)
+        else:
+            y_hat = self(x, mask=None)
+        
         loss = self.loss(y_hat, y)
 
         for metric in ["acc", "pre", "rec", "auroc"]:
@@ -128,5 +134,8 @@ class StateClassifierNet(Net):
         return loss
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        x, y, mask = batch
+        # x, y, mask = batch
+        x, y = batch
+        mask=None
+        
         return self(x, mask=mask)

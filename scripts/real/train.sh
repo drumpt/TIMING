@@ -14,7 +14,8 @@ i=0
 num_max_jobs=5
 
 
-for data in mimic3 boiler epilepsy freezer wafer
+# for data in mimic3 boiler epilepsy freezer wafer
+for data in mimic3
 do
     for cv in 0 1 2 3 4
     do

@@ -446,6 +446,8 @@ class OUR:
         
         if max_seg_len is None:
             max_seg_len = T
+            
+        max_seg_len = min(T, max_seg_len)
 
         if min_seg_len is None:
             min_seg_len = 1
@@ -491,29 +493,47 @@ class OUR:
         # -------------------------------------------------------
         # 3) Forward pass & gather target logits
         # -------------------------------------------------------
+        # predictions = self.model(
+        #     masked_inputs.view(-1, T, D),
+        #     mask=None,
+        #     timesteps=None,
+        #     return_all=False
+        # )
+        
+        # # Ensure shape => [n_samples, B, num_classes]
+        # predictions = predictions.view(n_samples, -1, 2)
+        
+        # # print(predictions.shape)
+        # # print(targets.shape)
+        # # print(targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100 * B, 1).shape)
+        # # raise RuntimeError
+
+        # # Gather only the target logit for each example
+        # gathered = predictions.gather(
+        #     # dim=2, index=targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
+        #     dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
+        # ).squeeze(-1)
         predictions = self.model(
             masked_inputs.view(-1, T, D),
             mask=None,
             timesteps=None,
-            return_all=True
+            return_all=additional_forward_args[2],
         )
-        
         # Ensure shape => [n_samples, B, num_classes]
         if predictions.dim() == 1:
             predictions = predictions.unsqueeze(-1)
-        predictions = predictions.view(n_samples, -1, 2)
-        
-        # print(predictions.shape)
-        # print(targets.shape)
-        # print(targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100 * B, 1).shape)
-        # raise RuntimeError
+        predictions = predictions.view(n_samples, B, -1)
 
         # Gather only the target logit for each example
         gathered = predictions.gather(
-            dim=2, index=targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100*B, 1)
+            dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
         ).squeeze(-1)
+        
+        # 100 * B for switch-feature
+        # 200 * B for feature
 
         total_for_target = gathered.sum()
+        
         
         grad = torch.autograd.grad(outputs=total_for_target, inputs=masked_inputs, retain_graph=True)[0]
         grad[time_mask == 0] = 0

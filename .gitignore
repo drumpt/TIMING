@@ -9,6 +9,7 @@ generator/mimic3/
 *.csv
 plot/
 results_gate/
+results_our/
 results_pred/
 results_mimic/
 results_pred_avg/

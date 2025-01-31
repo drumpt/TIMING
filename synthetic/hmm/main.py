@@ -1,14 +1,17 @@
 import multiprocessing as mp
 import os
 from pytorch_lightning.callbacks import EarlyStopping
-
+from os import path
+from pathlib import Path
+import sys
+sys.path.append(path.dirname( path.dirname( path.dirname( path.abspath(__file__) ) )))
 
 from argparse import ArgumentParser
 from captum.attr import DeepLift, GradientShap, IntegratedGradients, Lime
 from pytorch_lightning import Trainer, seed_everything
 from pytorch_lightning.loggers import TensorBoardLogger
 from typing import List
-from utils.tools import print_results
+# from utils.tools import print_results
 from tint.attr import (
     DynaMask,
     ExtremalMask,
@@ -37,7 +40,9 @@ from tint.models import MLP, RNN
 
 from attribution.gatemasknn import *
 from attribution.gate_mask import GateMask
-from hmm.classifier import StateClassifierNet
+from synthetic.hmm.classifier import StateClassifierNet
+
+from synthetic.switchstate.cumulative_difference import cumulative_difference
 
 
 def main(
@@ -92,11 +97,11 @@ def main(
     )
     if is_train:
         trainer.fit(classifier, datamodule=hmm)
-        if not os.path.exists("./model/"):
-            os.makedirs("./model/")
-        th.save(classifier.state_dict(), "./model/classifier_{}_{}".format(fold, seed))
+        if not os.path.exists("./model/hmm/"):
+            os.makedirs("./model/hmm/")
+        th.save(classifier.state_dict(), "./model/hmm/classifier_{}_{}".format(fold, seed))
     else:
-        classifier.load_state_dict(th.load("./model/classifier_{}_{}".format(fold, seed)))
+        classifier.load_state_dict(th.load("./model/hmm/classifier_{}_{}".format(fold, seed)))
 
     # Get data for explainers
     with lock:
@@ -116,6 +121,10 @@ def main(
 
     # Set model to device
     classifier.to(device)
+    
+    from torch.utils.data import DataLoader, TensorDataset
+    test_dataset = TensorDataset(x_test)
+    test_loader = DataLoader(test_dataset, batch_size=50, shuffle=False)
 
     # Disable cudnn if using cuda accelerator.
     # Please see https://captum.ai/docs/faq#how-can-i-resolve-cudnn-rnn-backward-error-for-rnn-or-lstm-network
@@ -133,7 +142,7 @@ def main(
             baselines=x_test * 0,
             task="binary",
             show_progress=True,
-        ).abs()
+        ).abs().to(device)
 
     if "dyna_mask" in explainers:
         trainer = Trainer(
@@ -244,7 +253,6 @@ def main(
             sigma=0.5,
         )
         attr["gate_mask"] = _attr.to(device)
-        print_results(attr["gate_mask"], true_saliency)
 
     if "fit" in explainers:
         generator = JointFeatureGeneratorNet(rnn_hidden_size=6)
@@ -268,15 +276,25 @@ def main(
         attr["fit"] = explainer.attribute(x_test, show_progress=True)
 
     if "gradient_shap" in explainers:
-        explainer = TimeForwardTunnel(GradientShap(classifier.cpu()))
-        attr["gradient_shap"] = explainer.attribute(
-            x_test.cpu(),
-            baselines=th.cat([x_test.cpu() * 0, x_test.cpu()]),
-            n_samples=50,
-            stdevs=0.0001,
-            task="binary",
-            show_progress=True,
-        ).abs()
+        explainer = TimeForwardTunnel(GradientShap(classifier))
+        
+        gradients = []
+        
+        for batch in test_loader:
+            x_batch = batch[0].to(device)
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=th.cat([x_batch * 0, x_batch]),
+                n_samples=50,
+                stdevs=0.0001,
+                task="binary",
+                show_progress=True,
+            ).abs()
+            
+            gradients.append(attr_batch)
+            
+        attr["gradient_shap"] = th.cat(gradients, dim=0).to(device)
+            
         classifier.to(device)
 
     if "integrated_gradients" in explainers:
@@ -322,48 +340,79 @@ def main(
             show_progress=True,
         ).abs()
 
-    if "retain" in explainers:
-        retain = RetainNet(
-            dim_emb=128,
-            dropout_emb=0.4,
-            dim_alpha=8,
-            dim_beta=8,
-            dropout_context=0.4,
-            dim_output=2,
-            loss="cross_entropy",
-        )
-        explainer = Retain(
-            datamodule=hmm,
-            retain=retain,
-            trainer=Trainer(
-                max_epochs=50,
-                accelerator=accelerator,
-                devices=device_id,
-                deterministic=deterministic,
-                logger=TensorBoardLogger(
-                    save_dir=".",
-                    version=random.getrandbits(128),
-                ),
-            ),
-        )
-        attr["retain"] = (
-            explainer.attribute(x_test, target=y_test).abs().to(device)
-        )
+    if "our" in explainers:
+        from attribution.explainers import OUR
+        for num_segments in [1, 5]:
+            for min_seg_len in [1]:
+                for max_seg_len in [10, 100, 200]:
+                    explainer = OUR(classifier)
+                    
+                    gradients = []
+        
+                    for batch in test_loader:
+                        x_batch = batch[0].to(device)
+                        
+
+                        # attr_batch = explainer.naive_attribute(
+                        attr_batch = th.zeros_like(x_batch)
+                        for t in range(x_batch.shape[1]):
+                            from captum._utils.common import _run_forward
+                            with th.autograd.set_grad_enabled(False):
+                                partial_targets = _run_forward(
+                                    classifier,
+                                    attr_batch[:, :t+1, :],
+                                    additional_forward_args=(None, None, False),
+                                )
+                            partial_targets = th.argmax(partial_targets, -1)
+                            attr_batch[:, :t+1, :] += explainer.attribute_random_synthetic(
+                                x_batch[:, :t+1, :],
+                                baselines=x_batch[:, :t+1, :] * 0,
+                                targets=partial_targets,
+                                additional_forward_args=(None, None, False),
+                                n_samples=50,
+                                num_segments=num_segments,
+                                min_seg_len=min_seg_len,
+                                max_seg_len=max_seg_len,
+                            ).abs()
+                        # print(attr_batch)
+                        gradients.append(attr_batch)
+            
+                    attr[f"our_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = th.cat(gradients, dim=0)
+
+    x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
+
+    baselines_dict = {0: "Average", 1: "Zeros"}
 
     with open(output_file, "a") as fp, lock:
-        for k, v in attr.items():
-            fp.write(str(seed) + ",")
-            fp.write(str(fold) + ",")
-            fp.write(k + ",")
-            fp.write(str(lambda_1) + ",")
-            fp.write(str(lambda_2) + ",")
-            fp.write(f"{aup(v, true_saliency):.4},")
-            fp.write(f"{aur(v, true_saliency):.4},")
-            fp.write(f"{information(v, true_saliency):.4},")
-            fp.write(f"{entropy(v, true_saliency):.4},")
-            fp.write(f"{roc_auc(v, true_saliency):.4},")
-            fp.write(f"{auprc(v, true_saliency):.4}")
-            fp.write("\n")
+        for i, baselines in enumerate([x_avg, 0.0]):    
+            for k, v in attr.items():
+                cum_diff, AUCC, cum_50_diff, _ = cumulative_difference(
+                    classifier,
+                    x_test,
+                    attributions=v.cpu(),
+                    baselines=baselines,
+                    topk=0.1,
+                    top=0,
+                    testbs=x_test.shape[0],
+                    additional_forward_args=(None, None, True),
+                )
+                fp.write(str(seed) + ",")
+                fp.write(str(fold) + ",")
+                fp.write(baselines_dict[i] + ",")
+                fp.write(k + ",")
+                fp.write(str(lambda_1) + ",")
+                fp.write(str(lambda_2) + ",")
+                fp.write(f"{cum_50_diff:.4},")
+                fp.write(f"{cum_diff:.4},")
+                fp.write(f"{AUCC:.4},")
+                v = v.to(device)
+                fp.write(f"{aup(v, true_saliency):.4},")
+                fp.write(f"{aur(v, true_saliency):.4},")
+                fp.write(f"{information(v, true_saliency):.4},")
+                fp.write(f"{entropy(v, true_saliency):.4},")
+                fp.write(f"{roc_auc(v, true_saliency):.4},")
+                fp.write(f"{auprc(v, true_saliency):.4}")
+                fp.write("\n")
 
     # if not os.path.exists("./results/"):
     #     os.makedirs("./results/")

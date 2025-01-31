@@ -45,11 +45,11 @@ def cumulative_difference(
     **kwargs,
 ) -> float:
     # Format data
-    # return_all = additional_forward_args[2]
+    return_all = additional_forward_args[2]
     inputs = _format_tensor_into_tuples(inputs)  # type: ignore
-    # additional_forward_args = _format_additional_forward_args(
-    #     additional_forward_args
-    # )
+    additional_forward_args = _format_additional_forward_args(
+        additional_forward_args
+    )
     attributions = _format_tensor_into_tuples(attributions)  # type: ignore
     if baselines is not None:
         baselines = _format_baseline(
@@ -117,26 +117,26 @@ def cumulative_difference(
             )
 
         # Compute predictions for the first step
-        
-        # Suppose additional_forward_args are not given as tensor like mask.
         logits_orig = _run_forward(
             forward_func=forward_func,
             inputs=batch_inputs,
             target=None,
-            additional_forward_args=additional_forward_args,
+            additional_forward_args=(None, None, return_all),
         )
         logits_first = _run_forward(
             forward_func=forward_func,
             inputs=inputs_pert_first,
             target=None,
-            additional_forward_args=additional_forward_args,
+            additional_forward_args=(None, None, return_all),
         )
 
         prob_orig = logits_orig.softmax(-1)
         prob_first = logits_first.softmax(-1)
+        # print(logits_orig.shape)
+        # raise RuntimeError
 
         # Compute and store the first step difference
-        step_diff_first = torch.abs(prob_orig - prob_first).mean(dim=1).sum().item()
+        step_diff_first = torch.abs(prob_orig - prob_first).mean(dim=2).mean(dim=1).sum().item()
         cumulative_differences[0] += step_diff_first
         
         prob_before = prob_first
@@ -158,13 +158,13 @@ def cumulative_difference(
                 forward_func=forward_func,
                 inputs=inputs_pert_step,
                 target=None,
-                additional_forward_args=additional_forward_args,
+                additional_forward_args=(None, None, return_all),
             )
 
             prob_step = logits_step.softmax(-1)
 
             # Compute cumulative difference for the batch up to this step
-            step_diff = torch.abs(prob_before - prob_step).mean(dim=1).sum().item()
+            step_diff = torch.abs(prob_before - prob_step).mean(dim=2).mean(dim=1).sum().item()
             cumulative_differences[step] += step_diff
             
             prob_before = prob_step

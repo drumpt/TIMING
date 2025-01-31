@@ -18,7 +18,6 @@ for explainer in ${explainer_list}; do
     do
         for top in 100
         do
-
             # when already train feature generator.
             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
                 --model_type state \

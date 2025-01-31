@@ -11,7 +11,8 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=5
 
-model_list="state transformer cnn"
+# model_list="state transformer cnn"
+model_list="state"
 for model in ${model_list}; do
     for cv in 0 1 2 3 4
     do
@@ -24,6 +25,7 @@ for model in ${model_list}; do
                     for max_seg_len in 48
                     do
                         explainer_list="our"
+                        # explainer_list="deeplift_signed"
                         for explainer in ${explainer_list}; do
                             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
                                 --model_type $model \
@@ -36,7 +38,7 @@ for model in ${model_list}; do
                                 --num_segments $num_segments \
                                 --min_seg_len $min_seg_len \
                                 --max_seg_len $max_seg_len \
-                                --output-file ${model}_mimic3_${cv}_${top}_results_final.csv \
+                                --output-file ${model}_mimic3_${cv}_${top}_results.csv \
                                 --device cuda:0 \
                                 2>&1 &
                             wait_n

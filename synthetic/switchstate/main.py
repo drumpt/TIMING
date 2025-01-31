@@ -41,7 +41,7 @@ from tint.models import MLP, RNN
 from attribution.gatemasknn import *
 from attribution.gate_mask import GateMask
 from classifier import SpikeClassifierNet
-from real.cumulative_difference import cumulative_difference
+from synthetic.switchstate.cumulative_difference import cumulative_difference
 
 def main(
     explainers: List[str],
@@ -132,7 +132,6 @@ def main(
             x_test,
             baselines=x_test * 0,
             task="binary",
-            additional_forward_args=(None, None, True),
             show_progress=True,
         ).abs()
 
@@ -265,7 +264,6 @@ def main(
             trainer=trainer,
         )
         attr["fit"] = explainer.attribute(x_test, 
-                                          additional_forward_args=(None, None, True),
                                           show_progress=True)
 
     if "gradient_shap" in explainers:
@@ -275,10 +273,9 @@ def main(
             baselines=th.cat([x_test.cpu() * 0, x_test.cpu()]),
             n_samples=50,
             stdevs=0.0001,
-            additional_forward_args=(None, None, True),
             task="binary",
             show_progress=True,
-        ).abs()
+        ).abs().to(device)
         classifier.to(device)
 
     # if "integrated_gradients" in explainers:
@@ -291,26 +288,14 @@ def main(
     #         show_progress=True,
     #     ).abs()
     if "integrated_gradients" in explainers:
-        explainer = IntegratedGradients(classifier)
-        from captum._utils.common import _run_forward
-        with th.autograd.set_grad_enabled(False):
-            partial_targets = _run_forward(
-                classifier,
-                x_test,
-                additional_forward_args=(None, None, True),
-            )
-        partial_targets = th.argmax(partial_targets, -1)
-
-        # attr["integrated_gradients"] = explainer.attribute(
-        #     x_test, _load_txt_uea
-        #     baselines=x_test * 0,
-        #     target=partial_targets,
-        #     additional_forward_args=(True,),
-        #     # temporal_additional_forward_args=temporal_additional_forward_args,
-        #     # task="binary",
-        #     # show_progress=True,
-        # ).abs()
-        attr["integrated_gradients"] = th.zeros_like(x_test).to(device)
+        explainer = TimeForwardTunnel(IntegratedGradients(classifier))
+        attr["integrated_gradients"] = explainer.attribute(
+            x_test,
+            baselines=x_test * 0,
+            internal_batch_size=200,
+            task="binary",
+            show_progress=True,
+        ).abs().to(device)
         
     if "our" in explainers:
         from attribution.explainers import OUR
@@ -356,7 +341,6 @@ def main(
         explainer = TimeForwardTunnel(
             TemporalAugmentedOcclusion(
                 classifier, data=x_train, n_sampling=10, 
-                additional_forward_args=(None, None, True),
                 is_temporal=True
             )
         )
@@ -364,7 +348,6 @@ def main(
             x_test,
             sliding_window_shapes=(1,),
             attributions_fn=abs,
-            additional_forward_args=(None, None, False),
             task="binary",
             show_progress=True,
         ).abs().to(device)
@@ -429,7 +412,6 @@ def parse_args():
             "deep_lift",
             "lime",
             "fit",
-            # "retain",
             "dyna_mask",
             "extremal_mask",  # tensor(13723.2715, grad_fn=<SumBackward0>) tensor(0.2366, grad_fn=<MeanBackward0>)
             "gate_mask",# tensor(14289.1562) tensor(0.4865, grad_fn=<MeanBackward0>) tensor(0.0310, gra>) 1.1 1 tensor(0.1030, grad_fn=<MseLossBackward0>)

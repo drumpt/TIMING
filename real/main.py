@@ -488,6 +488,39 @@ def main(
             deeplift.append(attr_batch.cpu())
         
         attr["deeplift_abs"] = th.cat(deeplift, dim=0)
+        
+    ####  deeplift classfiier.predict error occur
+    if "deeplift_signed" in explainers:
+        explainer = DeepLift(classifier)
+
+        deeplift = []
+
+        # Iterate over the DataLoader to process data in batches
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+            
+            attr_batch = explainer.attribute(
+                x_batch,
+                baselines=x_batch * 0,
+                target=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+            )
+            
+            deeplift.append(attr_batch.cpu())
+        
+        attr["deeplift_signed"] = th.cat(deeplift, dim=0)
 
     if "gradientshap_abs" in explainers:
         explainer = GradientShap(classifier.predict)
@@ -526,6 +559,44 @@ def main(
         
         # Concatenate all batch IG attributes into a single tensor
         attr["gradientshap_abs"] = th.cat(gradientshap, dim=0)
+        
+    if "gradientshap_signed" in explainers:
+        explainer = GradientShap(classifier.predict)
+
+        gradientshap = []
+
+        # Iterate over the DataLoader to process data in batches
+        for batch in test_loader:
+            x_batch = batch[0].to(device)  # Move batch to the appropriate device if necessary
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+            
+            from captum._utils.common import _run_forward
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            
+            attr_batch = explainer.attribute(
+                    x_batch,
+                    baselines=(th.cat([x_batch * 0, x_batch])),
+                    target=partial_targets,
+                    n_samples=50,
+                    stdevs=0.0001,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            
+            
+            # Append the IG attributes of the current batch to the list
+            gradientshap.append(attr_batch.cpu())  # Move to CPU if necessary
+        
+        # Concatenate all batch IG attributes into a single tensor
+        attr["gradientshap_signed"] = th.cat(gradientshap, dim=0)
         
     if "integrated_gradients_base" in explainers:
         explainer = IntegratedGradients(classifier.predict)
@@ -736,6 +807,47 @@ def main(
 
         # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
         attr[f"timing_sample50_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = th.cat(our_results, dim=0)
+
+    if "our_signed" in explainers:
+        from attribution.explainers import OUR
+
+        explainer = OUR(classifier.predict)
+
+        our_results = []
+
+        for batch in tqdm(test_loader):
+            x_batch = batch[0].to(device)
+            data_mask = batch[1].to(device)
+            batch_size = x_batch.shape[0]
+            timesteps = timesteps[:batch_size, :]
+
+            from captum._utils.common import _run_forward
+
+            with th.autograd.set_grad_enabled(False):
+                partial_targets = _run_forward(
+                    classifier,
+                    x_batch,
+                    additional_forward_args=(data_mask, timesteps, False),
+                )
+            partial_targets = th.argmax(partial_targets, -1)
+
+            # attr_batch = explainer.naive_attribute(
+            attr_batch = explainer.attribute_random_time_segments_one_dim_same_for_batch(
+                x_batch,
+                baselines=x_batch * 0,
+                targets=partial_targets,
+                additional_forward_args=(data_mask, timesteps, False),
+                n_samples=50,
+                num_segments=num_segments,
+                min_seg_len=min_seg_len,
+                max_seg_len=max_seg_len,
+            )
+
+            our_results.append(attr_batch.detach().cpu())
+
+        # attr["timeig_sample50_seg25_min7_max30"] = th.cat(our_results, dim=0)
+        attr[f"timing_sample50_seg{num_segments}_min{min_seg_len}_max{max_seg_len}_signed"] = th.cat(our_results, dim=0)
+
 
     if "our_random" in explainers:
         from attribution.explainers import OUR

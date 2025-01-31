@@ -11,7 +11,8 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=5
 
-model_list="state transformer cnn"
+# model_list="state transformer cnn"
+model_list="state"
 for model in ${model_list}; do
 
     explainer_list="gate_mask"
