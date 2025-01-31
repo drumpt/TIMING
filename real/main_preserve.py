@@ -39,9 +39,7 @@ from tint.attr.models import (
     MaskNet,
     RetainNet,
 )
-# from tint.datasets import Mimic3
-# from datasets.mimic3 import Mimic3
-from datasets.mimic3_zero import Mimic3
+from datasets.mimic3 import Mimic3
 from datasets.PAM import PAM
 from datasets.boiler import Boiler
 from datasets.epilepsy import Epilepsy

@@ -43,7 +43,8 @@ lab_IDs = [
     "CHLORIDE",
     "GLUCOSE",
     "HEMATOCRIT",
-    "HEMOGLOBIN" "LACTATE",
+    "HEMOGLOBIN",
+    "LACTATE",
     "MAGNESIUM",
     "PHOSPHATE",
     "PLATELET",
@@ -58,7 +59,6 @@ lab_IDs = [
 eth_list = ["white", "black", "hispanic", "asian", "other"]
 
 EPS = 1e-5
-
 
 class Mimic3(DataModule):
     r"""
@@ -726,9 +726,9 @@ class Mimic3(DataModule):
         """"""
         
         if not os.path.exists(
-            os.path.join(self.data_dir, "train_patient_vital_preprocessed_mask_reversed.pkl")
+            os.path.join(self.data_dir, "train_patient_vital_preprocessed_no_imputation.pkl")
         ) or not os.path.join(
-            self.data_dir, "test_patient_vital_preprocessed_mask_reversed.pkl"
+            self.data_dir, "test_patient_vital_preprocessed_no_imputation.pkl"
         ):
             sqluser = input("sqluser: ")
             self.download(sqluser=sqluser)
@@ -736,41 +736,52 @@ class Mimic3(DataModule):
     def preprocess(self, split: str = "train") -> dict:
         # Load data
         file = os.path.join(self.data_dir, f"{split}_")
-        with open(file + "patient_vital_preprocessed_mask_reversed.pkl", "rb") as fp:
+        with open(file + "patient_vital_preprocessed_no_imputation.pkl", "rb") as fp:
             data = pkl.load(fp)
-
         features = th.Tensor([x for (x, y, z, m) in data]).transpose(1, 2)
         masks = th.Tensor([m for (x, y, z, m) in data]).transpose(1, 2)
-
         if self.task == "mortality":
             labels = th.Tensor([y for (x, y, z, m) in data])
         else:
             labels = features[..., 22]
             features = th.cat([features[..., :20], features[..., 23:]], dim=-1)
             masks = th.cat([masks[..., :20], masks[..., 23:]], dim=-1)
-
-        # Compute mean and std
+        # Compute mean and std on only observed values
         if split == "train":
-            self._mean = features.mean(dim=(0, 1), keepdim=True)
-            self._std = features.std(dim=(0, 1), keepdim=True)
+            # Create mask for valid values (where masks == 1)
+            valid_mask = (masks == 1)
+            # Count valid entries per feature
+            valid_counts = valid_mask.sum(dim=(0, 1), keepdim=True)
+            # Compute sum of valid entries
+            valid_sum = (features * valid_mask).sum(dim=(0, 1), keepdim=True)
+            # Compute mean using only valid entries
+            self._mean = valid_sum / (valid_counts + EPS)
+            # Compute std using only valid entries
+            diff_squared = (features - self._mean) ** 2
+            valid_var_sum = (diff_squared * valid_mask).sum(dim=(0, 1), keepdim=True)
+            self._std = th.sqrt(valid_var_sum / (valid_counts - 1 + EPS))
         else:
             assert split == "test", "split must be train or test"
-
-        assert (
-            self._mean is not None
-        ), "You must call preprocess('train') first"
-
-        # Normalise
-        features = (features - self._mean) / (self._std + EPS)
-        
-        # features[masks==0] = 0
-
+            assert self._mean is not None, "You must call preprocess('train') first"
+        # Normalize only observed values and zeroize missing values
+        normalized_features = features.clone()
+        valid_mask = (masks == 1)  # Changed from 0 to 1
+        normalized_features[valid_mask] = (
+            (features[valid_mask] - self._mean.expand_as(features)[valid_mask]) /
+            (self._std.expand_as(features)[valid_mask] + EPS)
+        )
+        normalized_features[~valid_mask] = 0.0
+        print(f"{normalized_features.shape=}")
+        print(f"{labels.long().shape=}")
+        # if split == 'test':
+        #     print(sum(sum(sum(~valid_mask))) / sum(sum(sum(th.ones_like(valid_mask)))))
+        #     raise RuntimeError
+        #     # 61.08%
         return {
-            "x": features.float(),
+            "x": normalized_features.float(),
             "y": labels.long() if self.task == "mortality" else labels.float(),
             "mask": masks
         }
-
 
 def quantize_signal(
     signal, start, step_size, n_steps, value_column, charttime_column

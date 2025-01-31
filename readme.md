@@ -14,13 +14,14 @@ pip install -U tensorboardX
 ```
 The requirements.txt file is used to install the necessary packages into a virtual environment.
 
-To test with winit and fit, additional setup is required.
+To test with cswitch-feature, additional setup is required.
 
 ```shell script
 git clone https://github.com/TimeSynth/TimeSynth.git
 cd TimeSynth
 python setup.py install
 cd ..
+python synthetic/switchstate/switchgenerator.py
 ```
 
 ## Reproducing experiments

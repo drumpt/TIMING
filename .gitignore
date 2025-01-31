@@ -14,9 +14,12 @@ results_pred/
 results_mimic/
 results_pred_avg/
 model/
+__pycache__/
+synthetic/switchstate/data/
 lightning_logs/
 model_zero/
 model_prev/
 motif/
+simulated_data_l2x/
 others/
 results/
