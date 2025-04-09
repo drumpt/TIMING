@@ -1,7 +1,8 @@
 # TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation
 
-Code for **TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation** submitted in ICML 2025. Timing is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
+Official implementation for **TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**.
 
+Timing is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, and wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
 Sincere thanks to each of the original authors!
 
 ## Installation instructions
@@ -14,7 +15,7 @@ pip install -U tensorboardX
 ```
 The requirements.txt file is used to install the necessary packages into a virtual environment.
 
-To test with cswitch-feature, additional setup is required.
+To test with switch-feature, additional setup is required.
 
 ```shell script
 git clone https://github.com/TimeSynth/TimeSynth.git
@@ -30,10 +31,9 @@ We have divided our experiments into two categories: Synthetic and Real.
 
 All experiments can be executed using scripts located in scripts/real, scripts/hmm, or scripts/switchfeature.
 
-This is example execution for MIMIC-III (ours)
+This is an example execution for MIMIC-III (ours)
 ```shell script
-bash scripts/real/train.sh # 
-
+bash scripts/real/train.sh
 bash scripts/real/run_mimic_our.sh
 bash scripts/real/run_mimic_baseline.sh
 ```
