@@ -1,6 +1,6 @@
-# Timing: Temporality-Aware Integrated Gradients for Time Series Explanation
+# TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation
 
-Code for **Timing: Temporality-Aware Integrated Gradients for Time Series Explanation** submitted in ICML 2025. Timing is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
+Code for **TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation** submitted in ICML 2025. Timing is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
 
 Sincere thanks to each of the original authors!
 
