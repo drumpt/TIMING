@@ -143,15 +143,15 @@ class OUR:
         expanded_start = start_pos.unsqueeze(0)  # [1, B, T, D]
 
         # Interpolate
-        noisy_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
+        interpolated_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
 
         # Add a little random noise
-        noise = torch.randn_like(noisy_inputs) * 1e-4
-        noisy_inputs = noisy_inputs + noise
+        noise = torch.randn_like(interpolated_inputs) * 1e-4
+        interpolated_inputs = interpolated_inputs + noise
 
         # Example: 50% chance to fix each [t, d]
         fix_probability = prob  # tweak as needed
-        rand_mask = torch.rand_like(noisy_inputs)  # shape [n_samples, B, T, D]
+        rand_mask = torch.rand_like(interpolated_inputs)  # shape [n_samples, B, T, D]
         # Convert to {0,1} by comparing to fix_probability
         # 1 = keep interpolation, 0 = fix to actual input
         time_mask = (rand_mask > fix_probability).float()
@@ -159,18 +159,18 @@ class OUR:
         # Detach actual inputs so no gradient is assigned to them
         fixed_inputs = inputs.unsqueeze(0).detach()  # shape [1, B, T, D]
         # broadcast to match [n_samples, B, T, D]
-        # The random mask has the same shape as `noisy_inputs`
+        # The random mask has the same shape as `interpolated_inputs`
         # => we combine them:
-        noisy_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        interpolated_inputs = time_mask * interpolated_inputs + (1 - time_mask) * fixed_inputs
 
         # Turn on gradient for only the interpolation portion
-        noisy_inputs.requires_grad = True
+        interpolated_inputs.requires_grad = True
 
         # -------------------------------------------------
         # 3) Forward pass & gather target predictions
         # -------------------------------------------------
         predictions = self.model(
-            noisy_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
+            interpolated_inputs.view(-1, inputs.shape[1], inputs.shape[2]),
             mask=None,
             timesteps=None,
             return_all=additional_forward_args[2],
@@ -196,11 +196,11 @@ class OUR:
         total_for_target = gathered.sum()
 
         # -------------------------------------------------
-        # 4) Compute gradients wrt `noisy_inputs`
+        # 4) Compute gradients wrt `interpolated_inputs`
         # -------------------------------------------------
         grad = torch.autograd.grad(
             outputs=total_for_target,
-            inputs=noisy_inputs,
+            inputs=interpolated_inputs,
             retain_graph=True,
             allow_unused=True,
         )[
@@ -252,9 +252,7 @@ class OUR:
         expanded_inputs = inputs.unsqueeze(0)
         expanded_baselines = baselines.unsqueeze(0)
         # Interpolate with batch-specific alphas
-        noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
-        noise = torch.randn_like(noisy_inputs) * 1e-4
-        noisy_inputs = noisy_inputs + noise
+        interpolated_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
         
         if max_seg_len is None:
             max_seg_len = T
@@ -270,7 +268,7 @@ class OUR:
         t_starts = (torch.rand(n_samples, B, num_segments, device=device) * (T - seg_lens)).long()
 
         # Initialize mask
-        time_mask = torch.ones_like(noisy_inputs)
+        time_mask = torch.ones_like(interpolated_inputs)
 
         # Create indices tensor
         batch_indices = torch.arange(B, device=device)
@@ -297,7 +295,7 @@ class OUR:
 
         # Combine masked inputs
         fixed_inputs = expanded_inputs.detach()
-        masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        masked_inputs = time_mask * interpolated_inputs + (1 - time_mask) * fixed_inputs
         masked_inputs.requires_grad = True
 
         # -------------------------------------------------------
@@ -325,7 +323,7 @@ class OUR:
         grad[time_mask == 0] = 0
 
         grads = grad.sum(dim=0)  # Proper Riemann sum
-        final_attr = grads * (inputs - baselines) / time_mask.sum(dim=0)
+        final_attr = grads * (inputs - baselines) / (time_mask.sum(dim=0) + torch.finfo(torch.float16).eps)
             
         return final_attr
     
@@ -369,9 +367,7 @@ class OUR:
         expanded_inputs = inputs.unsqueeze(0)
         expanded_baselines = baselines.unsqueeze(0)
         # Interpolate with batch-specific alphas
-        noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
-        noise = torch.randn_like(noisy_inputs) * 1e-4
-        noisy_inputs = noisy_inputs + noise
+        interpolated_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
         
         if max_seg_len is None:
             max_seg_len = T
@@ -381,7 +377,7 @@ class OUR:
 
         # Combine masked inputs
         fixed_inputs = expanded_inputs.detach()
-        masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        masked_inputs = time_mask * interpolated_inputs + (1 - time_mask) * fixed_inputs
         masked_inputs.requires_grad = True
 
         # -------------------------------------------------------
@@ -440,9 +436,7 @@ class OUR:
         expanded_inputs = inputs.unsqueeze(0)
         expanded_baselines = baselines.unsqueeze(0)
         # Interpolate with batch-specific alphas
-        noisy_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
-        noise = torch.randn_like(noisy_inputs) * 1e-4
-        noisy_inputs = noisy_inputs + noise
+        interpolated_inputs = expanded_baselines + alphas * (expanded_inputs - expanded_baselines)
         
         if max_seg_len is None:
             max_seg_len = T
@@ -460,7 +454,7 @@ class OUR:
         t_starts = (torch.rand(n_samples, B, num_segments, device=device) * (T - seg_lens)).long()
 
         # Initialize mask
-        time_mask = torch.ones_like(noisy_inputs)
+        time_mask = torch.ones_like(interpolated_inputs)
 
         # Create indices tensor
         batch_indices = torch.arange(B, device=device)
@@ -487,32 +481,12 @@ class OUR:
 
         # Combine masked inputs
         fixed_inputs = expanded_inputs.detach()
-        masked_inputs = time_mask * noisy_inputs + (1 - time_mask) * fixed_inputs
+        masked_inputs = time_mask * interpolated_inputs + (1 - time_mask) * fixed_inputs
         masked_inputs.requires_grad = True
 
         # -------------------------------------------------------
         # 3) Forward pass & gather target logits
         # -------------------------------------------------------
-        # predictions = self.model(
-        #     masked_inputs.view(-1, T, D),
-        #     mask=None,
-        #     timesteps=None,
-        #     return_all=False
-        # )
-        
-        # # Ensure shape => [n_samples, B, num_classes]
-        # predictions = predictions.view(n_samples, -1, 2)
-        
-        # # print(predictions.shape)
-        # # print(targets.shape)
-        # # print(targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, 100 * B, 1).shape)
-        # # raise RuntimeError
-
-        # # Gather only the target logit for each example
-        # gathered = predictions.gather(
-        #     # dim=2, index=targets.reshape(-1).unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
-        #     dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
-        # ).squeeze(-1)
         predictions = self.model(
             masked_inputs.view(-1, T, D),
             mask=None,

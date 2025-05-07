@@ -6,10 +6,10 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4)
+GPUS=(0 1 2 3)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=5
+num_max_jobs=4
 
 # model_list="state transformer cnn"
 model_list="state"

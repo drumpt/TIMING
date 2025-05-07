@@ -8,14 +8,14 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4)
+GPUS=(0 1 2 3)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=5
+num_max_jobs=4
 
 
 # for data in mimic3 boiler epilepsy freezer wafer
-for data in mimic3
+for data in freezer wafer mimic3 PAM boiler epilepsy
 do
     for cv in 0 1 2 3 4
     do

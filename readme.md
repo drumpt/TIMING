@@ -8,10 +8,9 @@ Sincere thanks to each of the original authors!
 ## Installation instructions
 
 ```shell script
-conda create -n timing python=3.10
+conda create -n timing python==3.10.16
 conda activate timing
-pip install -r requirement.txt
-pip install -U tensorboardX
+pip install -r requirement.txt --no-deps
 ```
 The requirements.txt file is used to install the necessary packages into a virtual environment.
 

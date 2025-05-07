@@ -456,7 +456,7 @@ def main(
 
     ####  deeplift classfiier.predict error occur
     if "deeplift_abs" in explainers:
-        explainer = DeepLift(classifier)
+        explainer = DeepLift(classifier) # change forward function to self.net(*args, **kwargs).softmax(-1)
 
         deeplift = []
 
