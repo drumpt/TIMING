@@ -1,9 +1,16 @@
 # TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation
 
-Official implementation for **TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**.
+**TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**<br>
+Hyeongwon Jang*, Changhun Kim*, Eunho Yang (*: equal contribution)<br>
+International Conference on Machine Learning (**ICML**), 2025 (Spotlight Presentation, 313/12107=2.6%)
 
-Timing is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, and wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
+
+
+## Introduction
+Official implementation for **TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**. TIMING is implemented in PyTorch and tested on different time series datasets, including switch-feature, state, Mimic-III, PAM, Epilespy, boiler, freezer, and wafer. Our overall experiments are based on [time_interpret](https://github.com/josephenguehard/time_interpret), [ContraLSP](https://github.com/zichuan-liu/ContraLSP), [TimeX++](https://github.com/zichuan-liu/TimeXplusplus), [WinIT](https://github.com/layer6ai-labs/WinIT). 
 Sincere thanks to each of the original authors!
+
+
 
 ## Installation instructions
 
@@ -23,6 +30,8 @@ python setup.py install
 cd ..
 python synthetic/switchstate/switchgenerator.py
 ```
+
+
 
 ## Reproducing experiments
 
