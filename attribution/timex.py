@@ -83,9 +83,7 @@ class TimeXExplainer:
         selection_criterion = simloss_on_val_wboth(sim_criterion, lam = 1.0)
         
         targs = transformer_default_args
-        if "transformer" in tencoder_path:
-            archtype = "transformer"
-        elif "state" in tencoder_path:
+        if "state" in tencoder_path:
             archtype = "state"
         
         all_indices = np.arange(x_train.shape[1])

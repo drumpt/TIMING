@@ -25,7 +25,6 @@ for model in ${model_list}; do
                     for max_seg_len in 48
                     do
                         explainer_list="our"
-                        # explainer_list="deeplift_signed"
                         for explainer in ${explainer_list}; do
                             CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
                                 --model_type $model \

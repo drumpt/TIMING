@@ -11,10 +11,30 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=4
 
-# model_list="state transformer cnn"
-model_list="state"
+model_list="state transformer cnn"
 for model in ${model_list}; do
-
+    explainer_list="timex timex++"
+    for explainer in ${explainer_list}; do
+        for cv in 0 1 2 3 4
+        do
+            for top in 100
+            do
+                CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
+                    --model_type state \
+                    --explainers $explainer \
+                    --data mimic3 \
+                    --fold $cv \
+                    --testbs 50 \
+                    --areas 0.1 \
+                    --top $top \
+                    --output-file state_mimic3_${cv}_${top}_results_baseline.csv \
+                    --device cuda:0 \
+                    2>&1 &
+                wait_n
+                i=$((i + 1))
+            done
+        done
+    done
     explainer_list="gate_mask"
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4

@@ -112,9 +112,13 @@ class GRU(nn.Module):
         elif len(x.shape) == 2:
             x = x.unsqueeze(0)
 
-        embedding, _ = self.encoder(x)
-        embedding = embedding.mean(dim=1) # mean over time
-        out = self.mlp(embedding)
+        # embedding, _ = self.encoder(x)
+        # embedding = embedding.mean(dim=1) # mean over time
+        # out = self.mlp(embedding)
+        
+        _, encoding = self.encoder(x)
+        out = self.mlp(encoding.reshape(encoding.shape[1], -1))
+        embedding = encoding.squeeze(0)
 
         if get_embedding:
             return out, embedding
