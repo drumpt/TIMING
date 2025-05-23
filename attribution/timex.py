@@ -85,6 +85,10 @@ class TimeXExplainer:
         targs = transformer_default_args
         if "state" in tencoder_path:
             archtype = "state"
+        elif "transformer" in tencoder_path:
+            archtype = "transformer"
+        elif "cnn" in tencoder_path:
+            archtype = "cnn"
         
         all_indices = np.arange(x_train.shape[1])
 
@@ -132,8 +136,9 @@ class TimeXExplainer:
         }
 
         # targs['trans_dim_feedforward'] = 16
-        targs['trans_dropout'] = 0.1
+        # targs['trans_dropout'] = 0.25
         targs['norm_embedding'] = False
+        targs['MAX'] = self.max_len
 
         model = TimeXModel(
             d_inp = self.num_features,
@@ -149,17 +154,27 @@ class TimeXExplainer:
         orig_state_dict = torch.load(tencoder_path)
         
         state_dict = {}
-        # print(orig_state_dict)
- 
-        for k, v in orig_state_dict.items():
-            if "net.regressor" in k:
-                name = k.replace("net.regressor", "mlp")
-                state_dict[name] = v
-            if "net.rnn" in k:
-                name = k.replace("net.rnn", "encoder")
-                state_dict[name] = v
+        
+        if "state" in tencoder_path:
+            for k, v in orig_state_dict.items():
+                if "net.regressor" in k:
+                    name = k.replace("net.regressor", "mlp")
+                    state_dict[name] = v
+                if "net.rnn" in k:
+                    name = k.replace("net.rnn", "encoder")
+                    state_dict[name] = v
+        elif "transformer" in tencoder_path:
+            for k, v in orig_state_dict.items():
+                if "net." in k:
+                    name = k.replace("net.", "")
+                    state_dict[name] = v
+        elif "cnn" in tencoder_path:
+            for k, v in orig_state_dict.items():
+                if "net." in k:
+                    name = k.replace("net.", "")
+                    state_dict[name] = v
             
-        model.encoder_main.load_state_dict(state_dict)
+        model.encoder_main.load_state_dict(state_dict, strict=True)
         model.to(device)
 
         if self.is_timex:

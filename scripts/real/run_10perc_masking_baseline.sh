@@ -11,7 +11,7 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=4
 
-data_list="wafer freezer boiler mimic3 epilepsy PAM"
+data_list="wafer freezer boiler epilepsy PAM mimic3"
 for data in ${data_list}; do
     explainer_list="timex timex++"
     for explainer in ${explainer_list}; do
@@ -61,6 +61,7 @@ for data in ${data_list}; do
                                 --top $top \
                                 --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
+                                --deterministic \
                                 2>&1 &
                             wait_n
                             i=$((i + 1))
@@ -96,6 +97,7 @@ for data in ${data_list}; do
                                 --top $top \
                                 --output-file state_${data}_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
+                                --deterministic \
                                 2>&1 &
                             wait_n
                             i=$((i + 1))

@@ -79,14 +79,9 @@ def main(
     model_type: str = "state",
     testbs: int = 0,
     top: int = 50,
-    skip_train_motif: bool = True,
     skip_train_timex: bool = True,
     prob: float = 0.1 ,
 ):
-    # If deterministic, seed everything
-    if deterministic:
-        seed_everything(seed=seed, workers=True)
-
     # Get accelerator and device
     accelerator = device.split(":")[0]
     device_id = 1
@@ -979,7 +974,7 @@ def main(
     with open(output_file, "a") as fp, lock:
         for i, baselines in enumerate([x_avg, 0.0]):
             for topk in areas:
-                for k, v in attr.items():        
+                for k, v in attr.items():
                     cum_diff, AUCC, cum_50_diff, _ = cumulative_difference(
                         classifier,
                         x_test,
@@ -988,7 +983,7 @@ def main(
                         topk=topk,
                         top=args.top,
                         testbs=testbs,
-                        additional_forward_args=(mask_test, timesteps, False),
+                        additional_forward_args=(mask_test, None, False),
                     )
                     
                     
@@ -1239,10 +1234,6 @@ def parse_args():
         default=48
     )
     parser.add_argument(
-        "--skip_train_motif",
-        action='store_true'
-    )
-    parser.add_argument(
         "--skip_train_timex",
         action='store_true'
     )
@@ -1285,7 +1276,6 @@ if __name__ == "__main__":
         model_type=args.model_type,
         testbs=args.testbs,
         top=args.top,
-        skip_train_motif=args.skip_train_motif,
         skip_train_timex=args.skip_train_timex,
         prob=args.prob
     )

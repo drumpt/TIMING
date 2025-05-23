@@ -79,6 +79,18 @@ def cumulative_difference(
 
         batch_inputs = tuple(inp[start_idx:end_idx] for inp in inputs)
         batch_attributions = tuple(attr[start_idx:end_idx] for attr in attributions)
+        
+        additional_batch_forward_args = ()
+        for additional_arg in additional_forward_args:
+            if isinstance(additional_arg, np.ndarray) or isinstance(additional_arg, torch.Tensor) or isinstance(additional_arg, list):
+                # print(len(additional_arg))
+                if len(additional_arg) == total_samples:
+                    # print(additional_arg[start_idx:end_idx].shape)
+                    additional_batch_forward_args + (additional_arg[start_idx:end_idx],)
+                else:
+                    additional_batch_forward_args + (additional_arg,)
+            else:
+                additional_batch_forward_args + (additional_arg,)
 
         # Get top-k indices for each batch
         topk_indices = tuple(
@@ -123,13 +135,13 @@ def cumulative_difference(
             forward_func=forward_func,
             inputs=batch_inputs,
             target=None,
-            additional_forward_args=additional_forward_args,
+            additional_forward_args=additional_batch_forward_args,
         )
         logits_first = _run_forward(
             forward_func=forward_func,
             inputs=inputs_pert_first,
             target=None,
-            additional_forward_args=additional_forward_args,
+            additional_forward_args=additional_batch_forward_args,
         )
 
         prob_orig = logits_orig.softmax(-1)
@@ -158,7 +170,7 @@ def cumulative_difference(
                 forward_func=forward_func,
                 inputs=inputs_pert_step,
                 target=None,
-                additional_forward_args=additional_forward_args,
+                additional_forward_args=additional_batch_forward_args,
             )
 
             prob_step = logits_step.softmax(-1)

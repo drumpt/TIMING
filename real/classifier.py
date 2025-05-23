@@ -77,23 +77,6 @@ class MimicClassifierNet(Net):
                 'n_classes': n_state,
                 'static': False,
             }
-            
-            if pam:
-                mimic_config = {
-                    'd_inp': feature_size,
-                    'd_model': 36,
-                    'nhead': 1,
-                    'nhid': 2 * 36,
-                    'nlayers': 1,
-                    'enc_dropout': 0.3,
-                    'max_len': 600,
-                    'd_static': 0,
-                    'MAX': 100,
-                    'aggreg': 'mean',
-                    'n_classes': n_state,
-                    'perc': 0.5,
-                    'static': False,
-                }
                           
             classifier = TransformerClassifier(**mimic_config)
             

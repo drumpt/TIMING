@@ -37,8 +37,6 @@ class PositionalEncodingTF(nn.Module):
     def forward(self, P_time):
         pe = self.getPE(P_time)
         #pe = pe.to(device)
-        print(pe)
-        raise RuntimeError
         return pe
 
 class TransformerClassifier(nn.Module):
@@ -265,8 +263,8 @@ class TransformerClassifier(nn.Module):
         # mask is (B*n_heads,T,T) - if None has no effect
         if x.isnan().sum() > 0:
             print('before enc', x.isnan().sum())
-        print(x.shape)
-        raise RuntimeError
+        # print(x.shape)
+        # raise RuntimeError
         output_preagg, attn = self.transformer_encoder(x, src_key_padding_mask = src_mask, mask = attn_mask)
 
         if show_sizes:
@@ -314,7 +312,7 @@ class TransformerClassifier(nn.Module):
 
     def forward(self, 
             src,
-            mask,
+            mask = None,
             timesteps = None,
             return_all = False,
             static = None, 
@@ -341,9 +339,6 @@ class TransformerClassifier(nn.Module):
             given_attn_mask (torch.Tensor): Mask on which to apply to the attention mechanism
                 - Can provide random mask for baseline comparison
         '''
-        
-        #print('src_mask', src_mask.shape)
-        # print(src.shape)
         if timesteps==None:
             timesteps=(
                 torch.linspace(0, 1, src.shape[1], device=src.device)

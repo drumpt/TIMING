@@ -9,10 +9,10 @@ wait_n() {
 GPUS=(0 1 2 3)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=5
+num_max_jobs=4
 
-# model_list="state transformer cnn"
-model_list="state"
+model_list="state transformer cnn"
+# model_list="state"
 for model in ${model_list}; do
     for cv in 0 1 2 3 4
     do

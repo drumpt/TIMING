@@ -46,6 +46,10 @@ bash scripts/real/run_mimic_our.sh
 bash scripts/real/run_mimic_baseline.sh
 ```
 
+Due to differences in our training environments, our results reported in the paper may not be fully reproducible using the provided training scripts alone.
+
+If you require access to the exact model checkpoints used in our experiments, please contact the authors directly. (janghw0911@kaist.ac.kr)
+
 All results will be stored in the current working directory.
 
 And then save parsing results:

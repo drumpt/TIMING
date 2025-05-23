@@ -19,6 +19,7 @@ synthetic/switchstate/data/
 lightning_logs/
 model_zero/
 model_prev/
+*.zip
 motif/
 simulated_data_l2x/
 others/

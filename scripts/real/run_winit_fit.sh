@@ -9,7 +9,7 @@ wait_n() {
 GPUS=(0 1 2 3 4)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=5
+num_max_jobs=4
 
 
 explainer_list="winit fit"

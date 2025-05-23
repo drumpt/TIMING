@@ -11,7 +11,8 @@ NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=4
 
-model_list="state transformer cnn"
+model_list="state"
+# model_list="state transformer cnn"
 for model in ${model_list}; do
     explainer_list="timex timex++"
     for explainer in ${explainer_list}; do
@@ -20,14 +21,14 @@ for model in ${model_list}; do
             for top in 100
             do
                 CUDA_VISIBLE_DEVICES=${GPUS[i % ${NUM_GPUS}]} python real/main.py \
-                    --model_type state \
+                    --model_type $model \
                     --explainers $explainer \
                     --data mimic3 \
                     --fold $cv \
                     --testbs 50 \
-                    --areas 0.1 \
+                    --areas 0.2 \
                     --top $top \
-                    --output-file state_mimic3_${cv}_${top}_results_baseline.csv \
+                    --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
                     --device cuda:0 \
                     2>&1 &
                 wait_n
@@ -61,6 +62,7 @@ for model in ${model_list}; do
                                 --top $top \
                                 --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
+                                --deterministic \
                                 2>&1 &
                             wait_n
                             i=$((i + 1))
@@ -96,6 +98,7 @@ for model in ${model_list}; do
                                 --top $top \
                                 --output-file ${model}_mimic3_${cv}_${top}_results_baseline.csv \
                                 --device cuda:0 \
+                                --deterministic \
                                 2>&1 &
                             wait_n
                             i=$((i + 1))
@@ -106,8 +109,9 @@ for model in ${model_list}; do
         done
     done
 
-
-    explainer_list="occlusion augmented_occlusion gradientshap_abs integrated_gradients_base_abs deeplift_abs lime"
+    explainer_list="augmented_occlusion gradientshap_abs integrated_gradients_base_abs"
+    # explainer_list="occlusion lime"
+    # explainer_list="deeplift_abs"
     for explainer in ${explainer_list}; do
         for cv in 0 1 2 3 4
         do
