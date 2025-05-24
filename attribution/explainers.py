@@ -135,7 +135,6 @@ class OUR:
         alphas = alphas.view(-1, 1, 1, 1)  # shape: [n_samples, 1, 1, 1]
 
         # Start from "start_pos" so that alpha=0 means "baselines"
-        # and alpha=1 means "inputs" (plus small noise).
         start_pos = baselines
 
         # Expand to shape [n_samples, B, T, D]
@@ -144,10 +143,6 @@ class OUR:
 
         # Interpolate
         interpolated_inputs = expanded_start + alphas * (expanded_inputs - expanded_start)
-
-        # Add a little random noise
-        noise = torch.randn_like(interpolated_inputs) * 1e-4
-        interpolated_inputs = interpolated_inputs + noise
 
         # Example: 50% chance to fix each [t, d]
         fix_probability = prob  # tweak as needed
@@ -503,11 +498,7 @@ class OUR:
             dim=2, index=targets.unsqueeze(0).unsqueeze(-1).expand(n_samples, B, 1)
         ).squeeze(-1)
         
-        # 100 * B for switch-feature
-        # 200 * B for feature
-
         total_for_target = gathered.sum()
-        
         
         grad = torch.autograd.grad(outputs=total_for_target, inputs=masked_inputs, retain_graph=True)[0]
         grad[time_mask == 0] = 0

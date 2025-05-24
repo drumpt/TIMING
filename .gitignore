@@ -5,6 +5,8 @@ data/FreezerRegularTrain/
 data/mimic3/
 data/PAM/
 data/Wafer/
+data/hmm/
+data/switchstate/
 generator/mimic3/
 *.csv
 plot/

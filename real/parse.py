@@ -126,7 +126,7 @@ def main():
     # Define the output directory and file path
     output_dir = Path(f"./results/{data}")
     output_dir.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
-    output_file = output_dir / f"{model}{experiment_name}.csv"
+    output_file = output_dir / f"{model}_{top_value}{experiment_name}.csv"
 
     # Save the result to the CSV file
     result.to_csv(output_file)

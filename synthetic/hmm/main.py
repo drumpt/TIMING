@@ -56,10 +56,6 @@ def main(
     lambda_2: float = 1.0,
     output_file: str = "results.csv",
 ):
-    # If deterministic, seed everything
-    if deterministic:
-        seed_everything(seed=seed, workers=True)
-
     # Get accelerator and device
     accelerator = device.split(":")[0]
     print(accelerator)
@@ -71,7 +67,7 @@ def main(
     lock = mp.Lock()
 
     # Load data
-    hmm = HMM(n_folds=5, fold=fold, seed=seed)
+    hmm = HMM(n_folds=5, fold=fold, seed=seed, data_dir="data/hmm")
 
     # Create classifier
     classifier = StateClassifierNet(
@@ -99,7 +95,7 @@ def main(
         trainer.fit(classifier, datamodule=hmm)
         if not os.path.exists("./model/hmm/"):
             os.makedirs("./model/hmm/")
-        th.save(classifier.state_dict(), "./model/hmm/classifier_{}_{}".format(fold, seed))
+        th.save(classifier.state_dict(), "../../model/hmm/classifier_{}_{}".format(fold, seed))
     else:
         classifier.load_state_dict(th.load("./model/hmm/classifier_{}_{}".format(fold, seed)))
 
@@ -342,7 +338,7 @@ def main(
 
     if "our" in explainers:
         from attribution.explainers import OUR
-        for num_segments in [1, 5]:
+        for num_segments in [1, 5, 10]:
             for min_seg_len in [1]:
                 for max_seg_len in [10, 100, 200]:
                     explainer = OUR(classifier)
@@ -352,17 +348,16 @@ def main(
                     for batch in test_loader:
                         x_batch = batch[0].to(device)
                         
-
-                        # attr_batch = explainer.naive_attribute(
                         attr_batch = th.zeros_like(x_batch)
                         for t in range(x_batch.shape[1]):
                             from captum._utils.common import _run_forward
                             with th.autograd.set_grad_enabled(False):
                                 partial_targets = _run_forward(
                                     classifier,
-                                    attr_batch[:, :t+1, :],
+                                    x_batch[:, :t+1, :],
                                     additional_forward_args=(None, None, False),
                                 )
+                                
                             partial_targets = th.argmax(partial_targets, -1)
                             attr_batch[:, :t+1, :] += explainer.attribute_random_synthetic(
                                 x_batch[:, :t+1, :],
@@ -427,17 +422,16 @@ def parse_args():
         "--explainers",
         type=str,
         default=[
-            "gate_mask",
+            "occlusion",
+            "augmented_occlusion",
+            "integrated_gradients",
+            "gradient_shap",
             "deep_lift",
+            "lime",
+            "fit",
             "dyna_mask",
             "extremal_mask",
-            "fit",
-            "gradient_shap",
-            "integrated_gradients",
-            "lime",
-            "augmented_occlusion",
-            "occlusion",
-            "retain",
+            "gate_mask"
         ],
         nargs="+",
         metavar="N",
@@ -492,9 +486,22 @@ def parse_args():
     )
     return parser.parse_args()
 
+def set_seed(seed):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    np.random.default_rng(seed)
+    th.manual_seed(seed)
+    th.cuda.manual_seed(seed)
+    th.cuda.manual_seed_all(seed)
+    th.backends.cudnn.deterministic = True
+    th.backends.cudnn.benchmark = False
+
+    print(f"set seed as {seed}")
 
 if __name__ == "__main__":
     args = parse_args()
+    set_seed(args.seed)
     main(
         explainers=args.explainers,
         device=args.device,

@@ -6,10 +6,10 @@ wait_n() {
     fi
 }
 
-GPUS=(0 1 2 3 4)
+GPUS=(0 1 2 3)
 NUM_GPUS=${#GPUS[@]}
 i=0
-num_max_jobs=5
+num_max_jobs=4
 
 for cv in 0 1 2 3 4
 do
@@ -17,6 +17,7 @@ do
         --fold $cv \
         --device cuda:0 \
         --output-file switch_feature_${cv}_results_baseline.csv \
+        --deterministic \
         2>&1 &
     wait_n
     i=$((i + 1))

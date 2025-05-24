@@ -22,7 +22,7 @@ class CNN(nn.Module):
             nn.ReLU(),
             nn.Linear(dim, n_classes),
         )
-    def forward(self, x, mask=None, timesteps=None, get_embedding=False, captum_input=False, show_sizes=False):
+    def forward(self, x, mask=None, timesteps=None, get_embedding=False, captum_input=False, show_sizes=False, return_all=False):
         # Input x shape: (B, T, F)
         # Need to convert to: (B, F, T) for Conv1d
         x = x.transpose(1, 2)  # (B, F, T)

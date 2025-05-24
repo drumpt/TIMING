@@ -54,10 +54,6 @@ def main(
     lambda_2: float = 1.0,
     output_file: str = "results.csv",
 ):
-    # If deterministic, seed everything
-    if deterministic:
-        seed_everything(seed=seed, workers=True)
-
     # Get accelerator and device
     accelerator = device.split(":")[0]
     print(accelerator)
@@ -69,7 +65,7 @@ def main(
     lock = mp.Lock()
 
     # Load data
-    switch = Switch(n_folds=5, fold=fold, seed=seed)
+    switch = Switch(n_folds=5, fold=fold, seed=seed, data_dir="data/switchstate")
 
     # Create classifier
     classifier = SpikeClassifierNet(
@@ -300,30 +296,30 @@ def main(
     if "our" in explainers:
         from attribution.explainers import OUR
         for num_segments in [1, 5, 10]:
-            for min_seg_len in [1, 10]:
+            for min_seg_len in [1]:
                 for max_seg_len in [10, 100]:
                     explainer = OUR(classifier)
 
-                    from captum._utils.common import _run_forward
-                    with th.autograd.set_grad_enabled(False):
-                        partial_targets = _run_forward(
-                            classifier,
-                            x_test,
-                            additional_forward_args=(None, None, True),
-                        )
-                    partial_targets = th.argmax(partial_targets, -1)
-
-                    # attr_batch = explainer.naive_attribute(
-                    attr_batch = explainer.attribute_random_synthetic(
-                        x_test,
-                        baselines=x_test * 0,
-                        targets=partial_targets,
-                        additional_forward_args=(None, None, True),
-                        n_samples=50,
-                        num_segments=num_segments,
-                        min_seg_len=min_seg_len,
-                        max_seg_len=max_seg_len,
-                    ).abs()
+                    attr_batch = th.zeros_like(x_test)
+                    for t in range(x_test.shape[1]):
+                        from captum._utils.common import _run_forward
+                        with th.autograd.set_grad_enabled(False):
+                            partial_targets = _run_forward(
+                                classifier,
+                                x_test[:, :t+1, :],
+                                additional_forward_args=(None, None, False),
+                            )
+                        partial_targets = th.argmax(partial_targets, -1)
+                        attr_batch[:, :t+1, :] += explainer.attribute_random_synthetic(
+                            x_test[:, :t+1, :],
+                            baselines=x_test[:, :t+1, :] * 0,
+                            targets=partial_targets,
+                            additional_forward_args=(None, None, False),
+                            n_samples=50,
+                            num_segments=num_segments,
+                            min_seg_len=min_seg_len,
+                            max_seg_len=max_seg_len,
+                        ).abs()
                     # print(attr_batch)
                     attr[f"our_seg{num_segments}_min{min_seg_len}_max{max_seg_len}"] = attr_batch.to(device)
 
@@ -470,9 +466,24 @@ def parse_args():
     )
     return parser.parse_args()
 
+def set_seed(seed):
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    np.random.default_rng(seed)
+    th.manual_seed(seed)
+    th.cuda.manual_seed(seed)
+    th.cuda.manual_seed_all(seed)
+    th.backends.cudnn.deterministic = True
+    th.backends.cudnn.benchmark = False
+
+    print(f"set seed as {seed}")
+
+
 
 if __name__ == "__main__":
     args = parse_args()
+    set_seed(args.seed)
     main(
         explainers=args.explainers,
         device=args.device,
