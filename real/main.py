@@ -678,7 +678,7 @@ def main(
             x_test,
             sliding_window_shapes=(1,),
             attributions_fn=abs,
-            additional_forward_args=(data_mask, timesteps, False),
+            additional_forward_args=(data_mask, None, False),
             temporal_additional_forward_args=temporal_additional_forward_args,
             task="binary",
             show_progress=True,
