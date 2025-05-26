@@ -6,7 +6,7 @@ wait_n() {
     fi
 }
 
-GPUS=(3 4 5 6 7)
+GPUS=(0 1 2 3)
 NUM_GPUS=${#GPUS[@]}
 i=0
 num_max_jobs=5
@@ -34,7 +34,7 @@ do
                             --num_segments $num_segments \
                             --min_seg_len $min_seg_len \
                             --max_seg_len $max_seg_len \
-                            --output-file preserve_avg_state_mimic3_${cv}_${top}_results.csv \
+                            --output-file preserve_state_mimic3_${cv}_${top}_results.csv \
                             --device cuda:0 \
                             2>&1 &
                         wait_n

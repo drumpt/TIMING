@@ -299,10 +299,8 @@ def main(
         if isinstance(result, tuple): result = result[0]
         attr[key] = th.Tensor(np.load('./results_our/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, key, fold, seed))).to(device)
 
-    x_avg = x_test.mean(1, keepdim=True).repeat(1, x_test.shape[1], 1)
-
     with open(output_file, "a") as fp, lock:
-        for i, baselines in enumerate([x_avg]):
+        for i, baselines in enumerate([0.0]):
             for topk in areas:
                 for k, v in attr.items():        
                     cum_diff, AUCC, cum_50_diff, pred_diff = cumulative_difference(
@@ -317,7 +315,7 @@ def main(
                         additional_forward_args=(mask_test, timesteps, False),
                     )
                     
-                    np.save('./results_pred_avg/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, k, fold, seed), pred_diff)
+                    np.save('./results_pred/{}_{}_{}_result_{}_{}.npy'.format(data, model_type, k, fold, seed), pred_diff)
                     print("done")
                     total_acc = 0.0
                     total_comp = 0.0
