@@ -1,6 +1,6 @@
 # TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation
 
-**TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**<br>
+[**TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**](https://arxiv.org/abs/2506.05035)<br>
 Hyeongwon Jang*, Changhun Kim*, Eunho Yang (*: equal contribution)<br>
 International Conference on Machine Learning (**ICML**), 2025 (Spotlight Presentation, 313/12107=2.6%)
 
