@@ -1,14 +1,12 @@
 # TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation
 
-[![arXiv](https://img.shields.io/badge/arXiv-2506.05035-b31b1b.svg)](https://arxiv.org/abs/2506.05035)
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15671176.svg)](https://doi.org/10.5281/zenodo.15671176)
-![](https://github.com/drumpt/drumpt.github.io/blob/main/content/publications/timing/featured.png)
-
-
-
 [**TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation**](https://arxiv.org/abs/2506.05035)<br>
 Hyeongwon Jang*, Changhun Kim*, Eunho Yang (*: equal contribution)<br>
 International Conference on Machine Learning (**ICML**), 2025 (Spotlight Presentation, 313/12107=2.6%)
+
+[![arXiv](https://img.shields.io/badge/arXiv-2506.05035-b31b1b.svg)](https://arxiv.org/abs/2506.05035)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15671176.svg)](https://doi.org/10.5281/zenodo.15671176)
+![](https://github.com/drumpt/drumpt.github.io/blob/main/content/publications/timing/featured.png)
 
 
 
