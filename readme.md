@@ -63,3 +63,14 @@ python real/parse.py --model state --data mimic3 --experiment_name baseline --to
 ```
 
 All parsed results will be saved in the results/ directory.
+
+## Citation
+```
+@inproceedings{jang2025timing,
+  title={{TIMING: Temporality-Aware Integrated Gradients for Time Series Explanation}},
+  author={Jang, Hyeongwon and Kim, Changhun and Yang, Eunho},
+  booktitle={International Conference on Machine Learning (ICML)},
+  year={2025}
+}
+```
+
