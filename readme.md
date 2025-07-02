@@ -50,9 +50,9 @@ bash scripts/real/run_mimic_our.sh
 bash scripts/real/run_mimic_baseline.sh
 ```
 
-Due to differences between our training environment and the released code, the paper’s results may not be fully reproducible with the training scripts alone. We have publicly released [all model checkpoints](https://drive.google.com/file/d/1nX9x2iBTcFUykHsKAj_1xQftWvZtc1B6/view?usp=sharing), except those trained on the restricted-access MIMIC-III dataset (whose redistribution is prohibited by its data-use agreement).
+Due to differences between our training environment and the released code, the paper’s results may not be fully reproducible with the training scripts alone. We have publicly released [all model checkpoints](https://drive.google.com/file/d/1nX9x2iBTcFUykHsKAj_1xQftWvZtc1B6/view?usp=sharing), except those trained on the restricted-access MIMIC-III dataset.
 
-Researchers who meet the MIMIC-III licensing requirements and need those specific checkpoints may contact the authors directly. (janghw0911@kaist.ac.kr)
+Researchers who need MIMIC-III checkpoints may contact the authors directly. (janghw0911@kaist.ac.kr)
 
 All results will be stored in the current working directory.
 
