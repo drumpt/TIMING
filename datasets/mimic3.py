@@ -158,6 +158,9 @@ class Mimic3(DataModule):
         )
         cur = con.cursor()
         cur.execute("SET search_path to " + schema_name)
+        cur.execute("SET work_mem = '64MB'")
+        cur.execute("SET max_parallel_workers_per_gather = 0")
+        cur.execute("SET max_parallel_workers = 0")
 
         # ========get the icu details
 

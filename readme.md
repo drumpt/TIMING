@@ -35,6 +35,33 @@ cd ..
 python synthetic/switchstate/switchgenerator.py
 ```
 
+### MIMIC-III Dataset Setup
+
+To use MIMIC-III dataset, you need to download the original dataset and set up a PostgreSQL database.
+
+**1. Download MIMIC-III Dataset**
+
+- Download from [PhysioNet](https://physionet.org/content/mimiciii/1.4/) (requires credentialed access and CITI training)
+- Sign the Data Use Agreement (DUA) and download all CSV files
+
+**2. Load into PostgreSQL**
+
+- Clone the MIMIC-III code repository:
+```shell script
+git clone https://github.com/MIT-LCP/mimic-code.git
+cd mimic-code/mimic-iii/buildmimic/postgres
+```
+- Follow the repository instructions to create database `mimic` with schema `mimiciii` and load CSV files
+
+**3. Configure Database Connection**
+
+Edit `datasets/mimic3.py` (around lines 151-157) to set your PostgreSQL connection:
+```python
+dbname = "mimic"
+schema_name = "mimiciii"
+# Set host, user, and password as needed
+```
+
 
 
 ## Reproducing experiments
