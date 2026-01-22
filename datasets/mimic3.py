@@ -136,7 +136,7 @@ class Mimic3(DataModule):
 
     def download(
         self,
-        sqluser: str = "postgres",
+        sqluser: str = "mimicuser",
         prop_train: float = 0.8,
         split: str = "train",
     ):
