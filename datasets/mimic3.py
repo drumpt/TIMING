@@ -136,7 +136,7 @@ class Mimic3(DataModule):
 
     def download(
         self,
-        sqluser: str = "mimicuser",
+        sqluser: str = "postgres",
         prop_train: float = 0.8,
         split: str = "train",
     ):
@@ -210,10 +210,10 @@ class Mimic3(DataModule):
         den = pd.read_sql_query(denquery, con)
 
         # drop patients with less than 48 hour
-        den["los_icu_hr"] = (den.outtime - den.intime).astype("timedelta64[h]")
+        den["los_icu_hr"] = (den.outtime - den.intime).dt.total_seconds() / 3600
         den = den[(den.los_icu_hr >= 48)]
         den = den[(den.age < 300)]
-        den.drop("los_icu_hr", 1, inplace=True)
+        den.drop("los_icu_hr", axis=1, inplace=True)
 
         # clean up
         den["adult_icu"] = np.where(
@@ -248,7 +248,7 @@ class Mimic3(DataModule):
                 "outtime",
                 "first_careunit",
             ],
-            1,
+            axis=1,
             inplace=True,
         )
 
@@ -536,10 +536,8 @@ class Mimic3(DataModule):
         # Create arrays
         x = np.zeros((len(icu_ids), 12, 48))
         x_lab = np.zeros((len(icu_ids), len(lab_IDs), 48))
-        x_impute = np.zeros((len(icu_ids), 12, 48))
         y = np.zeros((len(icu_ids),))
-        imp_mean = SimpleImputer(strategy="mean")
-        masks = np.zeros((len(icu_id), len(lab_IDs) + 12, 48))
+        masks = np.zeros((len(icu_ids), len(lab_IDs) + 12, 48))
 
         missing_ids = []
         missing_map = np.zeros((len(icu_ids), 12))
@@ -600,10 +598,6 @@ class Mimic3(DataModule):
                     if nan_count == 48:
                         n_missing_vitals = +1
                         missing_map[i, vital_IDs.index(vital)] = 1
-                    else:
-                        x_impute[i, :, :] = imp_mean.fit_transform(
-                            x[i, :, :].T
-                        ).T
                 except:  # noqa: E722
                     pass
 
@@ -663,17 +657,19 @@ class Mimic3(DataModule):
             f.write("\n")
 
         x_lab = np.delete(x_lab, missing_ids, axis=0)
-        x_impute = np.delete(x_impute, missing_ids, axis=0)
+        x = np.delete(x, missing_ids, axis=0)
         y = np.delete(y, missing_ids, axis=0)
         nan_map = np.delete(nan_map, missing_ids, axis=0)
 
-        x_lab_impute = impute_lab(x_lab)
         missing_map = np.delete(missing_map, missing_ids, axis=0)
         missing_map_lab = np.delete(missing_map_lab, missing_ids, axis=0)
         
         masks = np.delete(masks, missing_ids, axis=0)
         
-        all_data = np.concatenate((x_lab_impute, x_impute), axis=1)
+        x_lab = np.nan_to_num(x_lab, nan=0.0)
+        x = np.nan_to_num(x, nan=0.0)
+        
+        all_data = np.concatenate((x_lab, x), axis=1)
         f.write(
             "\n ******************* After removing missing *********************"
         )
@@ -711,13 +707,13 @@ class Mimic3(DataModule):
         # Save preprocessed data
         with open(
             os.path.join(
-                self.data_dir, "train_patient_vital_preprocessed_mask_reversed.pkl"
+                self.data_dir, "train_patient_vital_preprocessed_no_imputation.pkl"
             ),
             "wb",
         ) as f:
             pkl.dump(train_samples, f)
         with open(
-            os.path.join(self.data_dir, "test_patient_vital_preprocessed_mask_reversed.pkl"),
+            os.path.join(self.data_dir, "test_patient_vital_preprocessed_no_imputation.pkl"),
             "wb",
         ) as f:
             pkl.dump(test_samples, f)
@@ -735,6 +731,8 @@ class Mimic3(DataModule):
 
     def preprocess(self, split: str = "train") -> dict:
         # Load data
+        self.prepare_data()
+
         file = os.path.join(self.data_dir, f"{split}_")
         with open(file + "patient_vital_preprocessed_no_imputation.pkl", "rb") as fp:
             data = pkl.load(fp)
